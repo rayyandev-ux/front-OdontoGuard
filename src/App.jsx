@@ -160,7 +160,6 @@ const LoginForm = ({ onLogin }) => {
           </div>
         </div>
         <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">OdontoKaren</h2>
-        <p className="text-center text-slate-500 mb-8">Gestión Clínica Inteligente</p>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -203,9 +202,7 @@ const LoginForm = ({ onLogin }) => {
             {loading ? 'Accediendo...' : 'Ingresar al Sistema'}
           </button>
         </form>
-        <div className="mt-6 text-center text-xs text-slate-400">
-          v1.1.3 - Anexos Avanzados
-        </div>
+        
       </div>
     </div>
   );
