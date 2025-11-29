@@ -7,6 +7,6 @@ export default defineConfig({
     host: true,
     port: 8080,
     strictPort: true,
-    allowedHosts: ['odontokaren-front-odontokaren.eis2pk.easypanel.host']
+    allowedHosts: ['odontokaren.site']
   }
 })
