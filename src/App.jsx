@@ -457,7 +457,7 @@ export default function App() {
     { name: 'Ortodoncia contención', price: 400 },
     { name: 'Recementado o reposición de bracket', price: 50 },
     { name: 'Destartraje y profilaxis', price: 100 },
-    { name: 'Fluor barniz', price: 90 },
+    { name: 'Fluor barniz', price: 100 },
   ];
 
   const seedDefaultServices = async () => {
