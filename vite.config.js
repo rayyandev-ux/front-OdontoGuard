@@ -7,6 +7,6 @@ export default defineConfig({
     host: true,
     port: 8080,
     strictPort: true,
-    allowedHosts: ['odontokaren.site']
+    allowedHosts: ['odontokaren.site',"localhost:8080"]
   }
 })

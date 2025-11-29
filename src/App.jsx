@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail } from './api.js'
+import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail, listAppointments, createAppointment, updateAppointment, deleteAppointment, listReminderRules, createReminderRule, updateReminderRule, deleteReminderRule, listReminders, createReminder, deleteReminder, processDueReminders, sendReminderNow, listMessageLogs } from './api.js'
 import { 
   User, 
   FileText, 
+  FileSpreadsheet,
   Activity, 
   Image as ImageIcon, 
   Save, 
@@ -31,7 +32,8 @@ import {
   AlertTriangle,
   Upload,
   FileImage,
-  Camera
+  Camera,
+  Pencil
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -378,6 +380,7 @@ export default function App() {
   const [progressForm, setProgressForm] = useState({ date: '', notes: '', title: '', attachments: [] });
   const [progressOdontogram, setProgressOdontogram] = useState({});
   const [isSearchingDNI, setIsSearchingDNI] = useState(false);
+  const [creatingPatient, setCreatingPatient] = useState(false);
   const [visitForm, setVisitForm] = useState({
     date: new Date().toISOString().split('T')[0],
     description: '',
@@ -391,7 +394,165 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [serviceForm, setServiceForm] = useState({ name: '', price: '' });
   const [editingServiceId, setEditingServiceId] = useState(null);
+  const [serviceEditForm, setServiceEditForm] = useState({ name: '', price: '' });
+  const [serviceQuery, setServiceQuery] = useState('');
+  const filteredServices = useMemo(() => {
+    const q = serviceQuery.trim().toLowerCase();
+    if (!q) return services || [];
+    return (services || []).filter(s => String(s.name).toLowerCase().includes(q));
+  }, [services, serviceQuery]);
   const [imagePreview, setImagePreview] = useState(null);
+  const [appointments, setAppointments] = useState([]);
+  const [editingAppointmentId, setEditingAppointmentId] = useState(null);
+  const [appointmentEditForm, setAppointmentEditForm] = useState({ title: '', serviceId: '', startAt: '' });
+  const [dayModal, setDayModal] = useState({ open: false, date: null });
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [dayModalForm, setDayModalForm] = useState({ patientId: '', serviceId: '', time: '', durationMinutes: '', notes: '' });
+  const [rules, setRules] = useState([]);
+  const [completeBusyId, setCompleteBusyId] = useState(null);
+  
+  const [reminders, setReminders] = useState([]);
+  const [logsByReminder, setLogsByReminder] = useState({});
+  const [reminderStatusFilter, setReminderStatusFilter] = useState('all');
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [isMobile, setIsMobile] = useState(false);
+  const weekDayRefs = useRef([]);
+  
+  const defaultFollowUpTemplate = 'Hola {nombre} 😊, soy la Dra. Karen. Te escribo para recordarte tu {servicio} el {fecha}. Si tienes alguna duda, cuéntame por aquí. ¡Nos vemos pronto! 🦷✨';
+  const [manualReminderOpen, setManualReminderOpen] = useState(false);
+  const [manualReminderForm, setManualReminderForm] = useState({ patientId: '', serviceId: '', dueDate: '', dueTime: '', messageText: defaultFollowUpTemplate });
+  const [followRuleForm, setFollowRuleForm] = useState({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate });
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [formErrors, setFormErrors] = useState({ serviceId: '', delayDays: '', templateText: '' });
+  const [saveNotice, setSaveNotice] = useState('');
+  const messageRef = useRef(null);
+
+  const DEFAULT_SERVICES = [
+    { name: 'Resina simple', price: 50 },
+    { name: 'Carilla directa con resina', price: 200 },
+    { name: 'Endodoncia anterior', price: 300 },
+    { name: 'Endodoncia posterior', price: 450 },
+    { name: 'Retratamiento', price: 500 },
+    { name: 'Perno', price: 200 },
+    { name: 'Corona zirconio', price: 1200 },
+    { name: 'Corona metal cerámica', price: 700 },
+    { name: 'Carilla cerámica', price: 1200 },
+    { name: 'Prótesis parcial removible (dientes Olympic)', price: 1200 },
+    { name: 'Prótesis parcial removible (dientes Ivostar)', price: 1300 },
+    { name: 'Prótesis completa', price: 1300 },
+    { name: 'Extracción simple', price: 50 },
+    { name: 'Extracción compleja / Tercera molar superior erupcionada', price: 150 },
+    { name: 'Cirugía tercera molar', price: 300 },
+    { name: 'Blanqueamiento láser', price: 400 },
+    { name: 'Blanqueamiento cubetas', price: 400 },
+    { name: 'Blanqueamiento mixto', price: 800 },
+    { name: 'Pulpotomía', price: 250 },
+    { name: 'Pulpectomía', price: 350 },
+    { name: 'Corona de acero cromo niño', price: 150 },
+    { name: 'Exodoncias niño', price: 100 },
+    { name: 'Mantenedor de espacio unilateral', price: 250 },
+    { name: 'Mantenedor de espacio bilateral', price: 350 },
+    { name: 'Ortodoncia inicial', price: 1100 },
+    { name: 'Ortodoncia cuota mensual', price: 180 },
+    { name: 'Ortodoncia contención', price: 400 },
+    { name: 'Recementado o reposición de bracket', price: 50 },
+    { name: 'Destartraje y profilaxis', price: 100 },
+    { name: 'Fluor barniz', price: 100 },
+  ];
+
+  const seedDefaultServices = async () => {
+    try {
+      if (!token) return;
+      const existingByName = new Map((services || []).map(s => [String(s.name).trim().toLowerCase(), s]));
+      let created = 0, updated = 0;
+      for (const svc of DEFAULT_SERVICES) {
+        const key = String(svc.name).trim().toLowerCase();
+        const found = existingByName.get(key);
+        if (!found) {
+          const createdSvc = await createService(token, { name: svc.name, price: svc.price });
+          created++;
+          setServices(prev => [createdSvc, ...prev]);
+        } else if (Number(found.price) !== Number(svc.price)) {
+          const saved = await updateService(token, found.id, { name: found.name, price: svc.price });
+          updated++;
+          setServices(prev => prev.map(x => x.id === saved.id ? saved : x));
+        }
+      }
+      alert(`Servicios creados: ${created} • Actualizados: ${updated}`);
+    } catch (e) { alert(e?.message || 'Error cargando servicios por defecto'); }
+  };
+  
+  const [calendarView, setCalendarView] = useState('month');
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [calendarStatusFilter, setCalendarStatusFilter] = useState('all');
+  
+
+  const startOfWeek = (d) => {
+    const x = new Date(d);
+    const day = x.getDay();
+    const diff = (day === 0 ? -6 : 1) - day; // lunes como inicio
+    x.setDate(x.getDate() + diff);
+    x.setHours(0,0,0,0);
+    return x;
+  };
+  const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  const sameDay = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+  const formatDate = (d) => { const x = new Date(d); const dd = String(x.getDate()).padStart(2,'0'); const mm = String(x.getMonth()+1).padStart(2,'0'); const yyyy = x.getFullYear(); return `${dd}/${mm}/${yyyy}`; };
+  const formatDateTime = (d) => { const x = new Date(d); const time = x.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }); return `${formatDate(x)} ${time}`; };
+  
+  const weekDays = useMemo(() => {
+    const s = startOfWeek(calendarDate);
+    return Array.from({ length: 7 }, (_, i) => addDays(s, i));
+  }, [calendarDate]);
+  const monthMatrix = useMemo(() => {
+    const base = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
+    const start = startOfWeek(base);
+    return Array.from({ length: 6 }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(start, w * 7 + d)));
+  }, [calendarDate]);
+  const filteredAppointments = useMemo(() => {
+    if (calendarStatusFilter === 'all') return appointments;
+    return (appointments || []).filter(a => a.status === calendarStatusFilter);
+  }, [appointments, calendarStatusFilter]);
+  const apptsByDay = useMemo(() => {
+    const map = new Map();
+    for (const a of filteredAppointments || []) {
+      const dt = new Date(a.startAt);
+      const key = `${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(a);
+    }
+    return map;
+  }, [filteredAppointments]);
+
+  const filteredReminders = useMemo(() => {
+    return reminderStatusFilter === 'all' ? reminders : (reminders || []).filter(r => r.status === reminderStatusFilter);
+  }, [reminders, reminderStatusFilter]);
+  const groupedReminders = useMemo(() => {
+    const map = new Map();
+    for (const r of filteredReminders || []) {
+      const key = r.appointmentId ? `appt:${r.appointmentId}` : `manual:${r.patientId}:${new Date(r.dueAt).toISOString()}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    }
+    const groups = [];
+    for (const [key, items] of map.entries()) {
+      const any = items[0] || {};
+      const appt = any.appointmentId ? (appointments || []).find(a => a.id === any.appointmentId) : null;
+      const patient = (patients || []).find(p => p.id === any.patientId) || null;
+      const service = (services || []).find(s => s.id === (any.serviceId || appt?.serviceId)) || null;
+      const headerDate = appt ? formatDateTime(appt.startAt) : formatDateTime(any.dueAt);
+      const pendingCount = items.filter(x => x.status === 'pending').length;
+      const title = appt ? `Cita del ${headerDate}` : `Recordatorio del ${headerDate}`;
+      const subtitlePatient = patient ? `${patient.apellidos}, ${patient.nombres}` : (any.patientName || 'Paciente');
+      const subtitleService = service ? service.name : (appt?.title || '');
+      groups.push({ key, items, appt, patient, service, title, subtitlePatient, subtitleService, pendingCount });
+    }
+    return groups.sort((a,b) => {
+      const da = a.appt ? new Date(a.appt.startAt) : new Date(a.items[0].dueAt);
+      const db = b.appt ? new Date(b.appt.startAt) : new Date(b.items[0].dueAt);
+      return db - da;
+    });
+  }, [filteredReminders, appointments, patients, services, formatDateTime]);
   const defaultExamForm = {
     habitos: '',
     antecedentesFamiliares: '',
@@ -475,6 +636,34 @@ export default function App() {
     load();
   }, [token]);
 
+  useEffect(() => {
+    const load = async () => {
+      if (!token) return;
+      try { const a = await listAppointments(token); setAppointments(a); } catch (e) { void e }
+      try { const r = await listReminderRules(token); setRules(r); } catch (e) { void e }
+      try { const d = await listReminders(token); setReminders(d); } catch (e) { void e }
+    };
+    load();
+  }, [token]);
+
+  useEffect(() => {
+    const fn = () => { setIsMobile(window.innerWidth < 768); };
+    fn();
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
+  }, []);
+  useEffect(() => {
+    if (isMobile && view === 'agenda') setCalendarView('week');
+  }, [isMobile, view]);
+  useEffect(() => {
+    if (!isMobile || view !== 'agenda' || calendarView !== 'week') return;
+    const todayIdx = weekDays.findIndex(d => sameDay(d, new Date()));
+    if (todayIdx >= 0 && weekDayRefs.current[todayIdx]) {
+      try { weekDayRefs.current[todayIdx].scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); } catch { void 0 }
+    }
+  }, [isMobile, view, calendarView, weekDays]);
+
+
   const searchDNI = async (dniValue) => {
     if (!dniValue || dniValue.length < 8) { alert("Por favor ingrese un DNI válido de 8 dígitos."); return; }
     setIsSearchingDNI(true);
@@ -494,6 +683,19 @@ export default function App() {
   const handleCreatePatient = async (e) => {
     e.preventDefault();
     if (!token) return;
+    if (creatingPatient) return;
+    const dni = String(formData.dni || '').trim();
+    const nombres = String(formData.nombres || '').trim().toLowerCase();
+    const apellidos = String(formData.apellidos || '').trim().toLowerCase();
+    if (!dni || dni.length !== 8) { alert('DNI inválido, debe tener 8 dígitos'); return; }
+    const exists = (patients || []).some(p => {
+      const pdni = String(p.dni || '').trim();
+      const pn = String(p.nombres || '').trim().toLowerCase();
+      const pa = String(p.apellidos || '').trim().toLowerCase();
+      return (pdni && pdni === dni) || (pn === nombres && pa === apellidos);
+    });
+    if (exists) { alert('Ya existe un paciente con este DNI o con los mismos nombres y apellidos'); return; }
+    setCreatingPatient(true);
     try {
       const created = await createPatient(token, {
         ...formData,
@@ -504,11 +706,13 @@ export default function App() {
         general_attachments: []
       });
       const newPatientData = created;
+      setPatients(prev => [newPatientData, ...prev]);
       setActivePatient(newPatientData);
       setFormData(newPatientData);
       setView('patient-detail');
       setActiveTab('general');
     } catch (error) { alert("Error creando paciente: " + (error?.message || error)); }
+    finally { setCreatingPatient(false); }
   };
 
   const handleDeletePatient = async (pid) => {
@@ -628,6 +832,109 @@ export default function App() {
       } catch (e) { alert("Error actualizando información: " + (e?.message || e)); }
   };
 
+  
+
+  const handleMarkAppointmentCompleted = async (id) => {
+    setCompleteBusyId(id);
+    try {
+      const updated = await updateAppointment(token, id, { status: 'completed' });
+      setAppointments(prev => prev.map(a => a.id === id ? updated : a));
+      setCalendarStatusFilter('all');
+      let currentReminders = reminders || [];
+      try {
+        const d = await listReminders(token);
+        setReminders(d);
+        currentReminders = d || [];
+      } catch (e) { void e }
+      try {
+        const appt = updated || (appointments || []).find(a => a.id === id);
+        const sid = appt?.serviceId || null;
+        const pid = appt?.patientId || null;
+        const rule = (rules || []).find(r => r.serviceId === sid);
+        if (token && pid && sid && rule && Number(rule.delayDays) > 0) {
+          const start = new Date(appt.startAt);
+          start.setDate(start.getDate() + Number(rule.delayDays));
+          const dueAtIso = start.toISOString();
+          const existing = currentReminders.some(r => r.appointmentId === appt.id && new Date(r.dueAt).toISOString() === dueAtIso);
+          if (existing) { return; }
+          const svcName = services.find(s => s.id === sid)?.name || 'servicio';
+          const patName = patients.find(p => p.id === pid)?.nombres || 'cliente';
+          const fechaTxt = formatDate(start);
+          const msg = (rule.templateText || defaultFollowUpTemplate)
+            .replace('{nombre}', patName)
+            .replace('{servicio}', svcName)
+            .replace('{fecha}', fechaTxt);
+          const created = await createReminder(token, { patientId: pid, serviceId: sid, dueAt: dueAtIso, messageText: msg, channel: 'whatsapp', appointmentId: appt.id });
+          setReminders(prev => [created, ...prev]);
+        }
+      } catch (e) { void e }
+    } catch (e) { alert(e?.message || 'Error actualizando cita'); }
+    finally { setCompleteBusyId(null); }
+  };
+
+  const handleDeleteAppointment = async (id) => { try { await deleteAppointment(token, id); setAppointments(prev => prev.filter(a => a.id !== id)); } catch (e) { alert(e?.message || 'Error eliminando cita'); } };
+
+  const handleStartEditAppointment = (a) => {
+    setEditingAppointmentId(a.id);
+    setAppointmentEditForm({ title: a.title || '', serviceId: a.serviceId || '', startAt: new Date(a.startAt).toISOString().slice(0,16) });
+  };
+
+  const handleCancelEditAppointment = () => { setEditingAppointmentId(null); };
+
+  const handleUpdateAppointmentSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingAppointmentId) return;
+    try {
+      let sid = appointmentEditForm.serviceId || null;
+      if (sid) {
+        const sel = services.find(s => s.id === sid);
+        if (sel && sel.local) {
+          const createdService = await createService(token, { name: sel.name, price: sel.price });
+          sid = createdService.id;
+          setServices(prev => prev.map(x => x.id === sel.id ? { id: createdService.id, name: createdService.name, price: createdService.price } : x));
+        }
+      }
+      const payload = { title: appointmentEditForm.title, serviceId: sid, startAt: appointmentEditForm.startAt };
+      const updated = await updateAppointment(token, editingAppointmentId, payload);
+      setAppointments(prev => prev.map(x => x.id === editingAppointmentId ? updated : x));
+      setEditingAppointmentId(null);
+      try { const d = await listReminders(token); setReminders(d); } catch (e) { void e }
+    } catch (e) { alert(e?.message || 'Error actualizando cita'); }
+  };
+
+  
+
+  
+
+  const handleProcessReminders = async () => { try { await processDueReminders(token); const d = await listReminders(token); setReminders(d); alert('Recordatorios procesados'); } catch (e) { alert(e?.message || 'Error procesando recordatorios'); } };
+
+  const handleDeleteReminder = async (id) => {
+    try {
+      if (!token) return;
+      await deleteReminder(token, id);
+      setReminders(prev => prev.filter(r => r.id !== id));
+      setLogsByReminder(prev => { const { [id]: _, ...rest } = prev; return rest; });
+      alert('Recordatorio eliminado');
+    } catch (e) {
+      const msg = String(e?.message || '').toLowerCase();
+      if (msg.includes('not found') || msg.includes('reminder_not_found')) {
+        setReminders(prev => prev.filter(r => r.id !== id));
+        setLogsByReminder(prev => { const { [id]: _, ...rest } = prev; return rest; });
+        alert('El recordatorio no existe, se eliminó de la lista');
+      } else {
+        alert(e?.message || 'Error eliminando recordatorio');
+      }
+    }
+  };
+
+  
+
+  
+
+  
+
+
+
   const handleAddVisit = async (e) => {
       e.preventDefault();
       if (!activePatient) return;
@@ -681,16 +988,16 @@ export default function App() {
     catch { setServices(current); }
   };
 
-  const handleStartEditService = (s) => { setEditingServiceId(s.id || slug(s.name)); setServiceForm({ name: s.name, price: String(s.price) }); };
-  const handleCancelEditService = () => { setEditingServiceId(null); setServiceForm({ name: '', price: '' }); };
+  const handleStartEditService = (s) => { setEditingServiceId(s.id || slug(s.name)); setServiceEditForm({ name: s.name, price: String(s.price) }); };
+  const handleCancelEditService = () => { setEditingServiceId(null); setServiceEditForm({ name: '', price: '' }); };
   const handleSaveEditService = async () => {
     if (!editingServiceId) return;
-    const name = (serviceForm.name || '').trim();
-    const priceNum = parseFloat(serviceForm.price) || 0;
+    const name = (serviceEditForm.name || '').trim();
+    const priceNum = parseFloat(serviceEditForm.price) || 0;
     setServices(prev => prev.map(s => s.id === editingServiceId ? { ...s, name, price: priceNum } : s));
     const sid = editingServiceId;
     setEditingServiceId(null);
-    setServiceForm({ name: '', price: '' });
+    setServiceEditForm({ name: '', price: '' });
     try { if (token) await updateService(token, sid, { name, price: priceNum }); } catch (e) { void e }
   };
 
@@ -996,21 +1303,30 @@ export default function App() {
       )}
 
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-center md:justify-between">
             <div className="flex items-center space-x-2 cursor-pointer" onClick={() => { setView('dashboard'); setFormData(initialFormState); }}>
                 <div className="bg-teal-600 p-1.5 rounded-lg">
                     <Activity className="text-white w-6 h-6" />
                 </div>
                 <h1 className="text-xl font-bold text-slate-800">OdontoKaren</h1>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="hidden md:flex items-center space-x-4">
                 <button onClick={() => setView('services')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-slate-900 text-white hover:bg-slate-800">
                   <DollarSign className="w-4 h-4" /> Servicios
+                </button>
+                <button onClick={() => setView('reminders')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-indigo-700 text-white hover:bg-indigo-600 whitespace-nowrap">
+                  <Clock className="w-4 h-4" /> Recordatorios
+                </button>
+                <button onClick={() => setView('reminders-config')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-teal-700 text-white hover:bg-teal-600 whitespace-nowrap">
+                  <History className="w-4 h-4" /> Config. Recordatorios
+                </button>
+                <button onClick={() => setView('agenda')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-teal-700 text-white hover:bg-teal-600">
+                  <Calendar className="w-4 h-4" /> Agenda
                 </button>
                 <span className="text-sm text-slate-500 hidden md:block">Dra. Karen</span>
                 <button 
                   onClick={() => { setToken(null); localStorage.removeItem('authToken'); setView('login'); setPatients([]); setActivePatient(null); }}
-                  className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
+                  className="hidden md:inline-flex p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
                 >
                   <LogOut className="w-5 h-5" />
                 </button>
@@ -1032,17 +1348,18 @@ export default function App() {
                         <h2 className="text-2xl font-bold text-slate-800">Pacientes</h2>
                         <p className="text-slate-500">Gestiona los historiales clínicos de tu consultorio.</p>
                     </div>
-                    <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex flex-grow md:flex-none">
-                            <div className="relative flex-grow md:w-64">
-                                <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
-                                <input type="text" placeholder="Buscar por nombre o DNI..." className="w-full pl-9 pr-4 py-2 text-sm focus:outline-none rounded-md" />
-                            </div>
-                        </div>
-                        <button onClick={exportPatientsExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar Excel</button>
-                        <button onClick={exportPatientsPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar PDF</button>
-                        <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap">Crear nuevo paciente</button>
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                  <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex flex-grow md:flex-none">
+                    <div className="relative flex-grow md:w-64">
+                      <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                      <input type="text" placeholder="Buscar por nombre o DNI..." className="w-full pl-9 pr-4 py-2 text-sm focus:outline-none rounded-md" />
                     </div>
+                  </div>
+                  <button onClick={exportPatientsExcel} className="hidden md:inline-flex bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar Excel</button>
+                  <button onClick={exportPatientsPDF} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar PDF</button>
+                  <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap">Crear nuevo paciente</button>
+                  
+                </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-6">
@@ -1065,48 +1382,587 @@ export default function App() {
         )}
 
         {view === 'services' && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-slate-800 flex items-center"><DollarSign className="w-6 h-6 mr-2 text-teal-600" /> Servicios del Consultorio</h2>
-                    <div className="flex items-center gap-2">
-                      <button onClick={exportServicesExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar Excel</button>
-                      <button onClick={exportServicesPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar PDF</button>
-                      <button onClick={openSendServicesEmail} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-sm font-bold">Enviar por correo</button>
-                      <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
-                    </div>
+          <div className="space-y-6 animate-in fade-in duration-300">
+              <div className="flex md:flex-row flex-col md:items-center md:justify-between gap-2">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center"><DollarSign className="w-6 h-6 mr-2 text-teal-600" /> Servicios del Consultorio</h2>
+                <div className="flex items-center gap-2 md:mt-0 mt-2 w-full md:w-auto justify-start md:justify-end">
+                  <div className="relative w-full md:w-auto">
+                    <input value={serviceQuery} onChange={e => setServiceQuery(e.target.value)} placeholder="Buscar servicio..." className="w-full md:w-64 pl-8 pr-2 py-2 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                    <Search className="w-4 h-4 text-slate-400 absolute left-2 top-2.5" />
+                  </div>
+                  <button onClick={exportServicesExcel} className="hidden md:inline-flex bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar Excel</button>
+                  <button onClick={exportServicesPDF} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar PDF</button>
+                  <button onClick={openSendServicesEmail} className="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-sm font-bold">Enviar por correo</button>
+                  <button onClick={seedDefaultServices} className="hidden md:inline-flex bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-bold">Cargar por defecto</button>
+                  <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                    <form onSubmit={handleCreateService} className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                        <input placeholder="Nombre del servicio" value={serviceForm.name} onChange={e => setServiceForm({ ...serviceForm, name: e.target.value })} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <input type="number" step="0.01" placeholder="Precio (S/)" value={serviceForm.price} onChange={e => setServiceForm({ ...serviceForm, price: e.target.value })} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <button type="submit" className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-sm font-bold">Agregar Servicio</button>
-                    </form>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {services.map(s => (
-                          <div key={s.id || slug(s.name)} className="flex items-center justify-between bg-white border border-slate-200 rounded-lg p-3 hover:shadow-sm transition-shadow border-l-4 border-l-teal-500 overflow-visible">
-                            {editingServiceId === (s.id || slug(s.name)) ? (
-                              <div className="flex md:flex-nowrap flex-wrap items-center gap-2 w-full">
-                                <input className="flex-1 min-w-0 p-2 border rounded" value={serviceForm.name} onChange={e => setServiceForm({ ...serviceForm, name: e.target.value })} />
-                                <input type="number" step="0.01" className="w-28 shrink-0 p-2 border rounded" value={serviceForm.price} onChange={e => setServiceForm({ ...serviceForm, price: e.target.value })} />
-                                <button onClick={handleSaveEditService} className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded text-xs font-bold">Guardar</button>
-                                <button onClick={handleCancelEditService} className="shrink-0 bg-slate-200 hover:bg-slate-300 text-slate-800 px-3 py-1.5 rounded text-xs font-bold">Cancelar</button>
+                <div className="md:hidden grid grid-cols-2 gap-2 mt-2">
+                  <button onClick={exportServicesExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar Excel</button>
+                  <button onClick={exportServicesPDF} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold">Exportar PDF</button>
+                  <button onClick={openSendServicesEmail} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-sm font-bold">Enviar por correo</button>
+                  <button onClick={seedDefaultServices} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-bold">Cargar por defecto</button>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <form onSubmit={handleCreateService} className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre del servicio</label>
+                    <input placeholder="Ej. Blanqueamiento láser" value={serviceForm.name} onChange={e => setServiceForm({ ...serviceForm, name: e.target.value })} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Precio (S/)</label>
+                    <input type="number" step="0.01" placeholder="Ej. 400" value={serviceForm.price} onChange={e => setServiceForm({ ...serviceForm, price: e.target.value })} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                  </div>
+                  <div className="flex items-end">
+                    <button type="submit" className="w-full bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded text-sm font-bold">Agregar Servicio</button>
+                  </div>
+                </form>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border border-slate-200 rounded-lg overflow-hidden">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-xs font-bold text-slate-600 uppercase">Servicio</th>
+                        <th className="text-right px-3 py-2 text-xs font-bold text-slate-600 uppercase">Precio</th>
+                        <th className="text-center px-3 py-2 text-xs font-bold text-slate-600 uppercase w-28">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredServices.map(s => {
+                        const isEditing = editingServiceId === (s.id || slug(s.name));
+                        return (
+                          <tr key={s.id || slug(s.name)} className="border-t border-slate-200">
+                            <td className="px-3 py-2 align-middle">
+                              {isEditing ? (
+                                <input className="w-full p-2 border rounded text-sm" value={serviceEditForm.name} onChange={e => setServiceEditForm({ ...serviceEditForm, name: e.target.value })} />
+                              ) : (
+                                <span className="text-sm font-semibold text-slate-900">{s.name}</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 align-middle text-right">
+                              {isEditing ? (
+                                <input type="number" step="0.01" className="w-28 p-2 border rounded text-sm" value={serviceEditForm.price} onChange={e => setServiceEditForm({ ...serviceEditForm, price: e.target.value })} />
+                              ) : (
+                                <span className="text-sm font-extrabold text-slate-900">S/ {Number(s.price).toFixed(2)}</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 align-middle text-center">
+                              {isEditing ? (
+                                <div className="inline-flex items-center gap-2">
+                                  <button onClick={handleSaveEditService} className="text-emerald-700 hover:text-emerald-800 p-1 rounded" title="Guardar">
+                                    <Save className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={handleCancelEditService} className="text-slate-700 hover:text-slate-900 p-1 rounded" title="Cancelar">
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-2">
+                                  <button onClick={() => handleStartEditService(s)} className="text-slate-600 hover:text-blue-600 p-1 rounded" title="Editar">
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button onClick={() => handleDeleteService(s.id || slug(s.name))} className="text-slate-600 hover:text-red-600 p-1 rounded" title="Eliminar">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {!filteredServices.length && (
+                        <tr>
+                          <td colSpan="3" className="px-3 py-4 text-center text-sm text-slate-500">Sin resultados para "{serviceQuery}"</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+        )}
+
+        {view === 'agenda' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Calendar className="w-6 h-6 mr-2 text-teal-600" /> Agenda</h2>
+                <span className="text-slate-500">{calendarView === 'month' ? formatDate(calendarDate) : calendarView === 'week' ? `${formatDate(weekDays[0])} – ${formatDate(weekDays[6])}` : formatDate(calendarDate)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                
+                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                  <button onClick={() => setCalendarDate(new Date())} className="px-3 py-1 text-sm text-slate-700 hover:bg-slate-50">Hoy</button>
+                  <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? -30 : calendarView==='week'? -7 : -1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">←</button>
+                  <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? 30 : calendarView==='week'? 7 : 1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">→</button>
+                </div>
+                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                  <button onClick={() => setCalendarStatusFilter('all')} className={`px-3 py-1 text-sm ${calendarStatusFilter==='all'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Todas</button>
+                  <button onClick={() => setCalendarStatusFilter('scheduled')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='scheduled'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Programadas</button>
+                  <button onClick={() => setCalendarStatusFilter('completed')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='completed'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Atendidas</button>
+                </div>
+                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden ml-auto">
+                  <button onClick={() => setCalendarView('month')} className={`px-3 py-1 text-sm ${calendarView==='month'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Mes</button>
+                  <button onClick={() => setCalendarView('week')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='week'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Semana</button>
+                  <button onClick={() => setCalendarView('day')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='day'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Día</button>
+                </div>
+                <div className="md:hidden inline-flex items-center gap-2 ml-auto">
+                  <input type="month" value={`${calendarDate.getFullYear()}-${String(calendarDate.getMonth()+1).padStart(2,'0')}`} onChange={e => { const [y,m] = e.target.value.split('-'); setCalendarDate(new Date(Number(y), Number(m)-1, 1)); }} className="p-2 border rounded text-sm" />
+                </div>
+                
+              </div>
+
+              
+
+              {calendarView === 'month' && (
+                <div className="grid md:grid-cols-7 grid-cols-1 gap-2">
+                  <div className="hidden md:contents">
+                    {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(h => (
+                      <div key={h} className="text-xs font-bold text-slate-500 px-2 py-1">{h}</div>
+                    ))}
+                  </div>
+                  {monthMatrix.flat().map((d, i) => {
+                    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                    const items = apptsByDay.get(key) || [];
+                    const other = d.getMonth() !== calendarDate.getMonth();
+                    const today = sameDay(d, new Date());
+                    return (
+                      <div key={i} className={`group relative border border-slate-200 rounded-lg p-2 md:min-h-[120px] min-h-[80px] bg-white cursor-pointer hover:bg-slate-50 ${other?'opacity-50':''} ${today?'ring-2 ring-teal-500':''}`} onClick={() => setSelectedDay(d)}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={`${today?'bg-teal-600 text-white rounded-full w-6 h-6 flex items-center justify-center':'text-xs font-bold text-slate-700'}`}>{d.getDate()}</div>
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
+                        </div>
+                        <div className="space-y-1">
+                          {(isMobile ? items.slice(0,3) : items.slice(0,3)).map(a => {
+                            const c = a.status==='completed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : a.status==='scheduled' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200';
+                            const t = new Date(a.startAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+                            return (
+                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c}`}>
+                                <span className={`inline-block w-2 h-2 rounded-full ${a.status==='completed'?'bg-emerald-600':a.status==='scheduled'?'bg-blue-600':'bg-slate-500'}`}></span>
+                                <span className={`${isMobile?'truncate max-w-[120px]':'inline'}`}>{isMobile ? `${t} • ${a.title}` : `${t} • ${a.title}`}</span>
                               </div>
-                            ) : (
-                              <div className="flex items-center justify-between w-full">
-                                <div className="text-sm text-slate-900 font-semibold">{s.name}</div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-sm font-extrabold text-slate-900">S/ {Number(s.price).toFixed(2)}</span>
-                                  <button onClick={() => handleStartEditService(s)} className="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs font-bold">Editar</button>
-                                  <button onClick={() => handleDeleteService(s.id || slug(s.name))} className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold">Eliminar</button>
+                            );
+                          })}
+                          {items.length > 3 && <div className="text-[11px] text-slate-500">+{items.length - 3} más</div>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {calendarView === 'week' && (
+                <div className="grid md:grid-cols-7 grid-cols-1 gap-2">
+                  <div className="hidden md:contents">
+                    {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map((h) => (
+                      <div key={h} className="text-xs font-bold text-slate-500 px-2 py-1">{h}</div>
+                    ))}
+                  </div>
+                  {weekDays.map((d, i) => {
+                      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+                      const items = (apptsByDay.get(key) || []).sort((a,b) => new Date(a.startAt) - new Date(b.startAt));
+                      const today = sameDay(d, new Date());
+                      return (
+                      <div key={i} className={`group relative border border-slate-200 rounded-lg p-2 md:min-h-[140px] min-h-[80px] bg-white cursor-pointer hover:bg-slate-50 ${today?'ring-2 ring-teal-500':''}`} onClick={() => setSelectedDay(d)}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className={`${today?'bg-teal-600 text-white rounded-full w-6 h-6 flex items-center justify-center':'text-xs font-bold text-slate-700'}`}>{d.getDate()}</div>
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
+                        </div>
+                        <div className="space-y-1">
+                          {items.slice(0,3).map(a => {
+                            const c = a.status==='completed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : a.status==='scheduled' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200';
+                            const t = new Date(a.startAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+                            return (
+                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c}`}>
+                                <span className={`inline-block w-2 h-2 rounded-full ${a.status==='completed'?'bg-emerald-600':a.status==='scheduled'?'bg-blue-600':'bg-slate-500'}`}></span>
+                                <span className={`${isMobile?'truncate max-w-[120px]':'inline'}`}>{`${t} • ${a.title}`}</span>
+                              </div>
+                            );
+                          })}
+                          {items.length > 3 && <div className="text-[11px] text-slate-500">+{items.length - 3} más</div>}
+                        </div>
+                      </div>
+                      );
+                    })}
+                </div>
+              )}
+              {calendarView === 'day' && (
+                <div className="rounded-lg border border-slate-200 p-3 bg-white">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-bold text-slate-700">{formatDate(calendarDate)}</div>
+                    <button onClick={() => setDayModal({ open: true, date: calendarDate })} className="inline-flex items-center gap-1 px-2 py-1 text-sm bg-teal-600 text-white rounded"><Plus className="w-4 h-4" /> Nueva cita</button>
+                  </div>
+                  <div className="space-y-1">
+                    {(appointments || []).filter(a => sameDay(new Date(a.startAt), calendarDate)).sort((a,b) => new Date(a.startAt) - new Date(b.startAt)).map(a => {
+                      const c = a.status==='completed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : a.status==='scheduled' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200';
+                      const t = new Date(a.startAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+                      return (
+                        <div key={a.id} className={`text-sm rounded px-3 py-2 flex items-center justify-between ${c}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-2.5 h-2.5 rounded-full ${a.status==='completed'?'bg-emerald-600':a.status==='scheduled'?'bg-blue-600':'bg-slate-500'}`}></span>
+                            <span className="font-semibold">{t}</span>
+                            <span>{a.title}</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {a.status !== 'completed' && <button disabled={completeBusyId===a.id} onClick={() => handleMarkAppointmentCompleted(a.id)} className="text-xs px-2 py-0.5 bg-teal-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">Atendida</button>}
+                            <button onClick={() => handleStartEditAppointment(a)} className="text-xs px-2 py-0.5 bg-indigo-600 text-white rounded">Editar</button>
+                            <button onClick={() => handleDeleteAppointment(a.id)} className="text-xs px-2 py-0.5 bg-red-600 text-white rounded">Eliminar</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {!appointments.filter(a => sameDay(new Date(a.startAt), calendarDate)).length && (
+                      <div className="text-sm text-slate-400">Sin citas para este día</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              
+
+              
+
+              {dayModal?.open && (
+                <div className="fixed inset-0 z-50 bg-black/40 flex">
+                  <div className="bg-white w-full h-full max-w-none p-0 flex flex-col">
+                    <div className="flex items-center justify-between p-4 border-b border-slate-200">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => setDayModal({ open: false, date: null })} className="md:hidden inline-flex items-center gap-1 px-2 py-1 text-sm text-slate-700 border border-slate-300 rounded"><ArrowLeft className="w-4 h-4" /> Atrás</button>
+                        <div className="text-xl font-bold text-slate-800">Citas del {dayModal.date ? formatDate(dayModal.date) : ''}</div>
+                      </div>
+                      <button onClick={() => setDayModal({ open: false, date: null })} className="hidden md:inline-flex px-3 py-1.5 text-sm text-slate-700 border border-slate-300 rounded hover:bg-slate-50">Cerrar</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 pb-24 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Paciente*</label>
+                        <select value={dayModalForm?.patientId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, patientId: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full">
+                          <option value="">Selecciona</option>
+                          {patients.map(p => (
+                            <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Servicio*</label>
+                        <select value={dayModalForm?.serviceId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, serviceId: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full">
+                          <option value="">Selecciona</option>
+                          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Hora de la cita*</label>
+                        <input type="time" value={dayModalForm?.time || ''} onChange={e => setDayModalForm(prev => ({ ...prev, time: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Duración (min) opcional</label>
+                        <input type="number" min="5" step="5" placeholder="30" value={dayModalForm?.durationMinutes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, durationMinutes: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Motivo de la cita (opcional)</label>
+                        <textarea rows="2" placeholder="Comentarios o notas" value={dayModalForm?.notes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, notes: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between p-4 border-t border-slate-200">
+                      <div className="text-xs text-slate-500">* Obligatorio</div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setDayModal({ open: false, date: null })} className="px-4 py-2 text-base md:text-sm text-slate-700 border border-slate-300 rounded hover:bg-slate-50">Cerrar</button>
+                        <button onClick={async () => {
+                          try {
+                            if (!token || !dayModal?.date) return;
+                            if (!dayModalForm?.patientId || !dayModalForm?.serviceId || !dayModalForm?.time) { alert('Completa paciente, servicio y hora'); return; }
+                            let sid = dayModalForm?.serviceId || null;
+                            if (sid) { const sel = services.find(s => s.id === sid); if (sel && sel.local) { const createdService = await createService(token, { name: sel.name, price: sel.price }); sid = createdService.id; setServices(prev => prev.map(x => x.id === sel.id ? { id: createdService.id, name: createdService.name, price: createdService.price } : x)); } }
+                            const dt = new Date(dayModal.date);
+                            const [hh, mm] = String(dayModalForm.time).split(':');
+                            const start = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), Number(hh || 9), Number(mm || 0));
+                            let endAt = null;
+                            const dur = Number(dayModalForm?.durationMinutes || 0);
+                            if (dur > 0) { const end = new Date(start.getTime() + dur * 60000); endAt = end.toISOString(); }
+                            const svcName = services.find(s => s.id === sid)?.name || 'servicio';
+                            const patName = patients.find(p => p.id === dayModalForm.patientId)?.nombres || 'cliente';
+                            const title = `Cita de ${patName} para ${svcName}`;
+                            const payload = { patientId: dayModalForm.patientId, serviceId: sid, title, startAt: start.toISOString(), endAt, notes: dayModalForm?.notes || '' };
+                            const created = await createAppointment(token, payload);
+                            setAppointments(prev => [created, ...prev]);
+                            try {
+                              const fechaTxt = formatDate(start);
+                              const msg = (defaultFollowUpTemplate || '')
+                                .replace('{nombre}', patName)
+                                .replace('{servicio}', svcName)
+                                .replace('{fecha}', fechaTxt);
+                              const r = await createReminder(token, { patientId: dayModalForm.patientId, serviceId: sid, dueAt: start.toISOString(), messageText: msg, channel: 'whatsapp', appointmentId: created.id });
+                              setReminders(prev => [r, ...prev]);
+                            } catch (e) { void e }
+                            setDayModalForm({ patientId: '', serviceId: '', time: '', durationMinutes: '', notes: '' });
+                            alert('Cita creada');
+                          } catch (e) { alert(e?.message || 'Error creando cita'); }
+                        }} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-base md:text-sm font-bold">Crear</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+                {calendarView !== 'day' && selectedDay && (
+                  <div className="space-y-2">
+                    {(appointments || []).filter(a => sameDay(new Date(a.startAt), selectedDay)).sort((a,b) => new Date(a.startAt) - new Date(b.startAt)).map(a => {
+                        const dt = new Date(a.startAt);
+                        const isEditing = editingAppointmentId === a.id;
+                        const pendingReminder = (reminders || []).find(r => r.appointmentId === a.id && r.status === 'pending');
+                        return (
+                          <div key={a.id} className="border border-slate-200 bg-white rounded px-3 py-2 text-xs">
+                            {isEditing ? (
+                              <form onSubmit={handleUpdateAppointmentSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-1 items-end">
+                                <input value={appointmentEditForm.title} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, title: e.target.value })} className="p-1 border rounded text-xs" placeholder="Título" />
+                                <select value={appointmentEditForm.serviceId} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, serviceId: e.target.value })} className="p-1 border rounded text-xs">
+                                  <option value="">Servicio</option>
+                                  {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                                <input type="datetime-local" value={appointmentEditForm.startAt} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, startAt: e.target.value })} className="p-1 border rounded text-xs" />
+                                <div className="flex gap-1">
+                                  <button type="submit" className="px-2 py-0.5 bg-emerald-600 text-white rounded">Guardar</button>
+                                  <button type="button" onClick={handleCancelEditAppointment} className="px-2 py-0.5 bg-slate-200 text-slate-900 rounded">Cancelar</button>
+                                </div>
+                              </form>
+                              ) : (
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="font-semibold text-slate-800">{a.title}</div>
+                                  <div className="text-slate-600">{dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })} • {a.status}</div>
+                                  {pendingReminder && (
+                                    <div className="text-[11px] text-amber-700">Recordatorio programado: {formatDateTime(pendingReminder.dueAt)}</div>
+                                  )}
+                                </div>
+                                <div className="flex gap-1">
+                                  {a.status !== 'completed' && <button disabled={completeBusyId===a.id} onClick={() => handleMarkAppointmentCompleted(a.id)} className="text-xs px-2 py-0.5 bg-teal-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">Atendida</button>}
+                                  {pendingReminder && pendingReminder.status === 'pending' && <button onClick={async () => { try { const updated = await sendReminderNow(token, pendingReminder.id); setReminders(prev => prev.map(x => x.id === pendingReminder.id ? updated : x)); } catch (e) { alert(e?.message || 'No se pudo enviar'); } }} className="text-xs px-2 py-0.5 bg-emerald-600 text-white rounded">Enviar ahora</button>}
+                                  <button onClick={() => handleStartEditAppointment(a)} className="text-xs px-2 py-0.5 bg-indigo-600 text-white rounded">Editar</button>
+                                  <button onClick={() => handleDeleteAppointment(a.id)} className="text-xs px-2 py-0.5 bg-red-600 text-white rounded">Eliminar</button>
                                 </div>
                               </div>
                             )}
                           </div>
-                        ))}
+                        )
+                      })}
                     </div>
+                )}
+                  </div>
                 </div>
+              )}
+
+        {view === 'reminders' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Clock className="w-6 h-6 mr-2 text-indigo-600" /> Recordatorios</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+              </div>
             </div>
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="hidden md:flex text-xl font-bold text-slate-800 items-center"><Clock className="w-5 h-5 mr-2 text-indigo-600" /> Recordatorios (Autopilot)</h3>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                    <button onClick={() => setReminderStatusFilter('all')} className={`px-3 py-1 text-sm ${reminderStatusFilter==='all'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Todos</button>
+                    <button onClick={() => setReminderStatusFilter('pending')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='pending'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Pendientes</button>
+                    <button onClick={() => setReminderStatusFilter('sent')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='sent'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Enviados</button>
+                    <button onClick={() => setReminderStatusFilter('failed')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='failed'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Fallidos</button>
+                  </div>
+                  <button onClick={handleProcessReminders} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold">Procesar vencidos</button>
+                  <button onClick={() => setManualReminderOpen(o => !o)} className="hidden md:inline-flex bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-bold">{manualReminderOpen ? 'Cerrar manual' : 'Crear manual'}</button>
+                  
+                </div>
+              </div>
+              {manualReminderOpen && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                    <select value={manualReminderForm.patientId} onChange={e => setManualReminderForm({ ...manualReminderForm, patientId: e.target.value })} className="p-2 border rounded text-sm">
+                      <option value="">Paciente</option>
+                      {patients.map(p => <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>)}
+                    </select>
+                    <select value={manualReminderForm.serviceId} onChange={e => setManualReminderForm({ ...manualReminderForm, serviceId: e.target.value })} className="p-2 border rounded text-sm">
+                      <option value="">Servicio (opcional)</option>
+                      {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <input type="date" value={manualReminderForm.dueDate} onChange={e => setManualReminderForm({ ...manualReminderForm, dueDate: e.target.value })} className="p-2 border rounded text-base md:text-sm" />
+                    <input type="time" value={manualReminderForm.dueTime} onChange={e => setManualReminderForm({ ...manualReminderForm, dueTime: e.target.value })} className="p-2 border rounded text-base md:text-sm" />
+                    <input placeholder="Mensaje" value={manualReminderForm.messageText} onChange={e => setManualReminderForm({ ...manualReminderForm, messageText: e.target.value })} className="p-2 border rounded text-base md:text-sm md:col-span-2" />
+                    <button onClick={async () => {
+                      try {
+                        if (!token) return;
+                        if (!manualReminderForm.patientId || !manualReminderForm.dueDate || !manualReminderForm.dueTime) { alert('Completa paciente, fecha y hora'); return; }
+                        let sid = manualReminderForm.serviceId || null;
+                        if (sid) {
+                          const sel = services.find(s => s.id === sid);
+                          if (sel && sel.local) {
+                            const createdService = await createService(token, { name: sel.name, price: sel.price });
+                            sid = createdService.id;
+                            setServices(prev => prev.map(x => x.id === sel.id ? { id: createdService.id, name: createdService.name, price: createdService.price } : x));
+                          }
+                        }
+                        const [y,m,d] = manualReminderForm.dueDate.split('-').map(n => Number(n));
+                        const [hh, mm] = manualReminderForm.dueTime.split(':').map(n => Number(n));
+                        const dueAt = new Date(y, (m-1), d, hh || 9, mm || 0).toISOString();
+                        const created = await createReminder(token, { patientId: manualReminderForm.patientId, serviceId: sid, dueAt, messageText: manualReminderForm.messageText, channel: 'whatsapp' });
+                        setReminders(prev => [created, ...prev]);
+                        setManualReminderForm({ patientId: '', serviceId: '', dueDate: '', dueTime: '', messageText: defaultFollowUpTemplate });
+                        setManualReminderOpen(false);
+                        alert('Recordatorio creado');
+                      } catch (e) { alert(e?.message || 'Error creando recordatorio'); }
+                    }} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded text-sm font-bold">Crear</button>
+                  </div>
+                </div>
+              )}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+                <div className="grid grid-cols-1 gap-3">
+                  {groupedReminders.map(g => (
+                    <div key={g.key} className="bg-white border border-slate-200 rounded-lg">
+                      <button onClick={() => setExpandedGroups(prev => ({ ...prev, [g.key]: !prev[g.key] }))} className="w-full flex items-center justify-between p-3">
+                        <div>
+                          <div className="font-semibold text-slate-900">{g.title}</div>
+                          <div className="text-sm text-slate-600">Paciente: {g.subtitlePatient} • Servicio: {g.subtitleService || '—'} • {g.pendingCount ? `${g.pendingCount} pendientes` : `${g.items.length} total`}</div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-slate-500 transition-transform ${expandedGroups[g.key] ? 'rotate-90' : ''}`} />
+                      </button>
+                      {expandedGroups[g.key] && (
+                        <div className="border-t border-slate-200 p-3 space-y-2">
+                          {g.items.map(r => {
+                            const isAppt = !!(g.appt && new Date(r.dueAt).toISOString() === new Date(g.appt.startAt).toISOString());
+                            const label = isAppt ? 'Recordatorio de Cita' : 'Recordatorio de Seguimiento';
+                            return (
+                              <div key={r.id} className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="font-medium text-slate-800">{label}</div>
+                                  <div className="text-sm text-slate-600">{formatDateTime(r.dueAt)} • {r.status}</div>
+                                </div>
+                                <div className="text-slate-900 text-sm">{r.messageText || 'Recordatorio'}</div>
+                                <div className="flex items-center gap-2">
+                                  {r.status === 'pending' && (<button onClick={async () => { try { const updated = await sendReminderNow(token, r.id); setReminders(prev => prev.map(x => x.id === r.id ? updated : x)); } catch (e) { alert(e?.message || 'No se pudo enviar'); } }} className="text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1 rounded text-xs font-bold">Enviar ahora</button>)}
+                                  <button onClick={async () => { try { const logs = await listMessageLogs(token, { reminderId: r.id }); setLogsByReminder(prev => ({ ...prev, [r.id]: logs })); } catch (e) { alert(e?.message || 'Error cargando logs'); } }} className="text-slate-700 bg-slate-50 border border-slate-200 px-3 py-1 rounded text-xs font-bold">Ver detalle</button>
+                                  <button onClick={() => handleDeleteReminder(r.id)} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded text-xs font-bold">Eliminar</button>
+                                </div>
+                                {Array.isArray(logsByReminder[r.id]) && logsByReminder[r.id].length > 0 && (
+                                  <div className="mt-2 border border-slate-200 rounded p-2 text-xs text-slate-700">
+                                    {logsByReminder[r.id].map(l => (
+                                      <div key={l.id} className="flex items-center justify-between">
+                                        <div>
+                                          <div>{l.status} • {l.provider}</div>
+                                          <div className="text-slate-500">{formatDateTime(l.createdAt)} • {l.error || ''}</div>
+                                        </div>
+                                        <div className="text-slate-500">{l.toPhone}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         )}
+
+        {view === 'reminders-config' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center"><History className="w-6 h-6 mr-2 text-teal-600" /> Configuración de recordatorios</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setView('reminders')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="hidden md:flex text-xl font-bold text-slate-800 items-center"><History className="w-5 h-5 mr-2 text-teal-600" /> Seguimiento automático por servicio</h3>
+              </div>
+              {!!saveNotice && (<div className="mb-3 px-3 py-2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm">{saveNotice}</div>)}
+              <form onSubmit={async (e) => { e.preventDefault(); try {
+                setFormErrors({ serviceId: '', delayDays: '', templateText: '' });
+                if (!token) return;
+                const errs = { serviceId: '', delayDays: '', templateText: '' };
+                if (!followRuleForm.serviceId) errs.serviceId = 'Selecciona el servicio';
+                if (followRuleForm.delayDays === '' || Number(followRuleForm.delayDays) <= 0) errs.delayDays = 'Por favor, introduce un número de días válido';
+                if (!followRuleForm.templateText || !followRuleForm.templateText.trim()) errs.templateText = 'Ingresa un mensaje';
+                if (errs.serviceId || errs.delayDays || errs.templateText) { setFormErrors(errs); return; }
+                const svcName = services.find(s => s.id === followRuleForm.serviceId)?.name || 'Servicio';
+                if (editingRuleId) {
+                  const existing = (rules || []).find(r => r.id === editingRuleId);
+                  if (!existing) { setFormErrors(prev => ({ ...prev, serviceId: 'Regla no encontrada' })); return; }
+                  const updated = await updateReminderRule(token, existing.id, { serviceId: followRuleForm.serviceId, delayDays: Number(followRuleForm.delayDays || 0), enabled: Number(followRuleForm.delayDays || 0) > 0, templateText: followRuleForm.templateText, matchKeywords: existing.matchKeywords?.length ? existing.matchKeywords : [svcName] });
+                  setRules(prev => prev.map(r => r.id === existing.id ? updated : r));
+                  setEditingRuleId(null);
+                } else {
+                  const existsByService = (rules || []).find(r => r.serviceId === followRuleForm.serviceId);
+                  if (existsByService) { setFormErrors(prev => ({ ...prev, serviceId: 'Ya existe una configuración para este servicio' })); return; }
+                  const created = await createReminderRule(token, { serviceId: followRuleForm.serviceId, delayDays: Number(followRuleForm.delayDays || 0), enabled: Number(followRuleForm.delayDays || 0) > 0, templateText: followRuleForm.templateText, matchKeywords: [svcName], hourStart: 9, hourEnd: 19, daysOfWeek: [1,2,3,4,5,6] });
+                  setRules(prev => [created, ...prev]);
+                }
+                setSaveNotice('Configuración guardada correctamente');
+                setTimeout(() => setSaveNotice(''), 2000);
+              } catch (e) { const msg = String(e?.message || ''); if (msg.toLowerCase().includes('rule_already_exists')) { setFormErrors(prev => ({ ...prev, serviceId: 'Ya existe una configuración para este servicio' })); } else { alert(e?.message || 'Error guardando seguimiento'); } } }} className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Servicio</label>
+                  <select value={followRuleForm.serviceId} onChange={e => setFollowRuleForm(prev => ({ ...prev, serviceId: e.target.value }))} className="p-2 border rounded text-sm w-full" disabled={!!editingRuleId}>
+                    <option value="">Selecciona un servicio</option>
+                    {((editingRuleId ? services : services.filter(s => !(rules || []).some(r => r.serviceId === s.id)))).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  {!!formErrors.serviceId && (<div className="text-red-600 text-xs mt-1">{formErrors.serviceId}</div>)}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Enviar recordatorio después de</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min="1" step="1" value={followRuleForm.delayDays} onChange={e => setFollowRuleForm(prev => ({ ...prev, delayDays: Number(e.target.value) }))} className="p-2 border rounded text-sm w-24" />
+                    <span className="text-slate-600 text-sm">días</span>
+                  </div>
+                  {!!formErrors.delayDays && (<div className="text-red-600 text-xs mt-1">{formErrors.delayDays}</div>)}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Plantilla del mensaje</label>
+                  <textarea ref={messageRef} rows={4} value={followRuleForm.templateText} onChange={e => setFollowRuleForm(prev => ({ ...prev, templateText: e.target.value }))} className="p-2 border rounded text-sm w-full" />
+                  {!!formErrors.templateText && (<div className="text-red-600 text-xs mt-1">{formErrors.templateText}</div>)}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-slate-600 text-xs">Insertar variable:</span>
+                    <button type="button" onClick={() => { const v = '{nombre}'; const ta = messageRef.current; const start = ta?.selectionStart ?? (followRuleForm.templateText?.length || 0); const end = ta?.selectionEnd ?? start; const before = followRuleForm.templateText.slice(0, start); const after = followRuleForm.templateText.slice(end); setFollowRuleForm(prev => ({ ...prev, templateText: `${before}${v}${after}` })); }} className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">{`{nombre}`}</button>
+                    <button type="button" onClick={() => { const v = '{servicio}'; const ta = messageRef.current; const start = ta?.selectionStart ?? (followRuleForm.templateText?.length || 0); const end = ta?.selectionEnd ?? start; const before = followRuleForm.templateText.slice(0, start); const after = followRuleForm.templateText.slice(end); setFollowRuleForm(prev => ({ ...prev, templateText: `${before}${v}${after}` })); }} className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">{`{servicio}`}</button>
+                    <button type="button" onClick={() => { const v = '{fecha}'; const ta = messageRef.current; const start = ta?.selectionStart ?? (followRuleForm.templateText?.length || 0); const end = ta?.selectionEnd ?? start; const before = followRuleForm.templateText.slice(0, start); const after = followRuleForm.templateText.slice(end); setFollowRuleForm(prev => ({ ...prev, templateText: `${before}${v}${after}` })); }} className="px-2 py-1 rounded text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">{`{fecha}`}</button>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="submit" className="inline-flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-sm font-bold">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    Guardar
+                  </button>
+                  {editingRuleId && <button type="button" onClick={() => { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate }); setFormErrors({ serviceId: '', delayDays: '', templateText: '' }); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-4 py-2 rounded text-sm font-bold">Cancelar</button>}
+                </div>
+              </form>
+              {!!rules.length && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {rules.map(r => (
+                    <div key={r.id} className="flex items-center justify-between border border-slate-200 bg-white rounded px-3 py-2 text-xs">
+                      <div>
+                        <div className="font-semibold text-slate-800">{services.find(s => s.id === r.serviceId)?.name || r.serviceId}</div>
+                        <div className="text-slate-600">Seguimiento: {r.delayDays ? `${r.delayDays} días` : 'Ninguno'} • Activo: {r.enabled ? 'Sí' : 'No'}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => { setFollowRuleForm({ serviceId: r.serviceId, delayDays: Number(r.delayDays || 0), templateText: r.templateText || defaultFollowUpTemplate }); setEditingRuleId(r.id); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-3 py-1 rounded text-xs font-bold">Editar</button>
+                        <button onClick={async () => { try { await deleteReminderRule(token, r.id); setRules(prev => prev.filter(x => x.id !== r.id)); if (editingRuleId === r.id) { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate }); } } catch (e) { alert(e?.message || 'Error eliminando configuración'); } }} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded text-xs font-bold">Eliminar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        
 
         {view === 'new-patient' && (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -1117,22 +1973,23 @@ export default function App() {
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-xl">
                     <form onSubmit={handleCreatePatient} className="space-y-3">
                         <div className="relative">
-                          <input required placeholder="DNI (Obligatorio)" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-2.5 pr-10 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" maxLength={8} />
+                          <input required placeholder="DNI (Obligatorio)" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-2.5 pr-10 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" maxLength={8} />
                           <button type="button" onClick={() => searchDNI(formData.dni)} disabled={isSearchingDNI} className="absolute right-1 top-1 p-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-slate-400" title="Buscar en RENIEC">
                             {isSearchingDNI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                           </button>
                         </div>
-                        <input required placeholder="Nombres" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <input required placeholder="Apellidos" value={formData.apellidos} onChange={e => setFormData({...formData, apellidos: e.target.value})} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                        <input required placeholder="Nombres" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                        <input required placeholder="Apellidos" value={formData.apellidos} onChange={e => setFormData({...formData, apellidos: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
                         <div className="grid grid-cols-2 gap-2">
-                            <input type="date" required value={formData.fechaNacimiento} onChange={handleDOBChange} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                            <select value={formData.sexo} onChange={e => setFormData({...formData, sexo: e.target.value})} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
+                            <input type="date" required value={formData.fechaNacimiento} onChange={handleDOBChange} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                            <select value={formData.sexo} onChange={e => setFormData({...formData, sexo: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
                                 <option value="M">Masculino</option>
                                 <option value="F">Femenino</option>
                             </select>
                         </div>
-                        <input placeholder="Teléfono" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} className="w-full p-2.5 border rounded text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <button type="submit" className="w-full bg-slate-900 text-white py-2.5 rounded-lg font-medium hover:bg-slate-800 transition-colors shadow-lg">Crear Expediente</button>
+                        <input placeholder="Teléfono" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
+                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!formData.whatsappConsent} onChange={e => setFormData({ ...formData, whatsappConsent: e.target.checked })} /><span>Consentimiento WhatsApp</span></label>
+                        <button type="submit" disabled={creatingPatient} className="w-full bg-slate-900 text-white py-3 rounded-lg font-medium hover:bg-slate-800 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">{creatingPatient ? 'Creando...' : 'Crear Expediente'}</button>
                     </form>
                 </div>
             </div>
@@ -1198,6 +2055,7 @@ export default function App() {
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Domicilio</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.domicilio} onChange={e => setFormData({...formData, domicilio: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Email</label><input type="email" className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Teléfono</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} /></div>
+                                                <div className="flex items-center gap-2"><input type="checkbox" checked={!!formData.whatsappConsent} onChange={e => setFormData({ ...formData, whatsappConsent: e.target.checked })} /><span className="text-sm">Consentimiento WhatsApp</span></div>
                                             </div>
                                         </div>
 
@@ -1554,6 +2412,34 @@ export default function App() {
             </div>
         )}
       </main>
+      
+      {view==='dashboard' && (
+        <>
+          <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="md:hidden fixed bottom-16 right-4 z-50 bg-slate-900 hover:bg-slate-800 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xs font-bold">+
+          </button>
+          <button onClick={exportPatientsExcel} aria-label="Exportar Excel" className="md:hidden fixed bottom-32 right-4 z-50 bg-emerald-600 hover:bg-emerald-700 text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center">
+            <FileSpreadsheet className="w-5 h-5" />
+          </button>
+          <button onClick={exportPatientsPDF} aria-label="Exportar PDF" className="md:hidden fixed bottom-48 right-4 z-50 bg-indigo-600 hover:bg-indigo-700 text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center">
+            <FileText className="w-5 h-5" />
+          </button>
+        </>
+      )}
+      {view==='reminders' && (
+        <>
+          <button onClick={handleProcessReminders} className="md:hidden fixed bottom-32 right-4 z-50 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold">Procesar vencidos</button>
+          <button onClick={() => setManualReminderOpen(true)} className="md:hidden fixed bottom-16 right-4 z-50 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold">Crear manual</button>
+        </>
+      )}
+      <div className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-white border-t border-slate-200">
+        <div className="grid grid-cols-5">
+          <button onClick={() => setView('agenda')} className={`flex flex-col items-center justify-center py-2 ${view==='agenda'?'text-teal-700':'text-slate-600'}`}><Calendar className="w-6 h-6" /><span className="text-[11px]">Agenda</span></button>
+          <button onClick={() => setView('dashboard')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='dashboard'?'text-teal-700':'text-slate-600'}`}><User className="w-6 h-6" /><span className="text-[11px]">Pacientes</span></button>
+          <button onClick={() => setView('services')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='services'?'text-teal-700':'text-slate-600'}`}><DollarSign className="w-6 h-6" /><span className="text-[11px]">Servicios</span></button>
+          <button onClick={() => setView('reminders')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='reminders'?'text-teal-700':'text-slate-600'}`}><Clock className="w-6 h-6" /><span className="text-[11px]">Recordatorios</span></button>
+          <button onClick={() => setView('reminders-config')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='reminders-config'?'text-teal-700':'text-slate-600'}`}><History className="w-6 h-6" /><span className="text-[11px]">Config</span></button>
+        </div>
+      </div>
       {imagePreview && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setImagePreview(null)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
