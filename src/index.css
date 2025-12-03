@@ -1,3 +1,48 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --card-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+  --input-shadow: 0 2px 8px rgba(16, 24, 40, 0.06);
+}
+
+html, body {
+  background-color: #f3f4f6;
+}
+
+.odontogram-row {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.odontogram-row .tooth-item {
+  scroll-snap-align: start;
+}
+
+@media (max-width: 480px) {
+  .odontogram-row {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+.bg-white.border.border-slate-200,
+.bg-slate-50.border.border-slate-200,
+.bg-slate-100.border.border-slate-200 {
+  box-shadow: var(--card-shadow);
+}
+
+input[type="text"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+select,
+textarea {
+  box-shadow: var(--input-shadow);
+  background-color: #fff;
+}

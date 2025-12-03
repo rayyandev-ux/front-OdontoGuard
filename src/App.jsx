@@ -226,7 +226,7 @@ const Tooth = ({ id, data, activeTool, onUpdate }) => {
   const isMissing = Object.values(data || {}).some(v => v === 'missing');
 
   return (
-    <div className="flex flex-col items-center mx-0.5 mb-4">
+    <div className="tooth-item flex flex-col items-center mx-0.5 mb-4 flex-shrink-0">
       <span className="text-xs text-slate-100 font-mono mb-1">{id}</span>
       <div className="relative w-9 h-9 md:w-10 md:h-10 shadow-sm">
         {isMissing && (
@@ -251,6 +251,8 @@ const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
   const [teethState, setTeethState] = useState(data || {});
   const [activeTool, setActiveTool] = useState(readOnly ? 'select' : 'select');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [quad, setQuad] = useState('Q1');
 
   const handleToothUpdate = (toothId, face, toolId) => {
     if (readOnly) return;
@@ -270,10 +272,12 @@ const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
   };
 
   const renderRow = (teethIds) => (
-    <div className="flex justify-center bg-slate-900 p-3 rounded-lg border border-slate-700 mb-2 shadow-md overflow-x-auto">
-      {teethIds.map(id => (
-        <Tooth key={id} id={id} data={teethState[id]} activeTool={activeTool} onUpdate={handleToothUpdate} />
-      ))}
+    <div className="odontogram-row flex justify-start bg-slate-900 p-3 rounded-lg border border-slate-700 mb-2 shadow-md overflow-x-auto overflow-y-hidden">
+      <div className="inline-flex" style={{ transform: `scale(${zoom})`, transformOrigin: 'left top' }}>
+        {teethIds.map(id => (
+          <Tooth key={id} id={id} data={teethState[id]} activeTool={activeTool} onUpdate={handleToothUpdate} />
+        ))}
+      </div>
     </div>
   );
 
@@ -301,6 +305,11 @@ const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
                   </button>
                 ))}
                 <div className="flex-grow"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-300">Zoom</span>
+                  <button onClick={() => setZoom(z => Math.max(0.75, +(z - 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs">-</button>
+                  <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs">+</button>
+                </div>
                 <button onClick={handleSave} className="bg-teal-500 hover:bg-teal-600 text-white px-5 py-2 rounded-full text-sm md:text-base font-bold inline-flex items-center shadow-lg transition-colors">
                   <Save className="w-5 h-5 mr-2" />
                   Guardar Cambios
@@ -322,6 +331,13 @@ const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
                   </button>
                 ))}
               </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-xs text-slate-300">Zoom</span>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setZoom(z => Math.max(0.75, +(z - 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-xs">-</button>
+                  <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-xs">+</button>
+                </div>
+              </div>
               <button onClick={handleSave} className="mt-3 w-full bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold inline-flex items-center justify-center shadow-lg transition-colors">
                 <Save className="w-4 h-4 mr-2" />
                 Guardar Cambios
@@ -333,7 +349,21 @@ const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
 
       <div className={`p-4 rounded-xl border border-slate-200 ${readOnly ? 'bg-gray-50 opacity-90' : 'bg-slate-50'}`}>
         <h3 className="text-center font-bold text-slate-700 mb-2 uppercase tracking-wide">Dentición Adulta</h3>
-        <div className="grid grid-cols-1 gap-4">
+        <div className="md:hidden">
+          <div className="flex items-center justify-center gap-2 mb-3">
+            {['Q1','Q2','Q3','Q4'].map(q => (
+              <button key={q} onClick={() => setQuad(q)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${quad === q ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}>{q}</button>
+            ))}
+          </div>
+          <div className="text-center text-xs text-slate-400 mb-1">
+            {quad === 'Q1' && 'Superior Derecha (Q1)'}
+            {quad === 'Q2' && 'Superior Izquierda (Q2)'}
+            {quad === 'Q3' && 'Inferior Izquierda (Q3)'}
+            {quad === 'Q4' && 'Inferior Derecha (Q4)'}
+          </div>
+          {renderRow(quad === 'Q1' ? ADULT_TEETH_UPPER.slice(0,8) : quad === 'Q2' ? ADULT_TEETH_UPPER.slice(8) : quad === 'Q3' ? ADULT_TEETH_LOWER.slice(8) : ADULT_TEETH_LOWER.slice(0,8))}
+        </div>
+        <div className="hidden md:grid md:grid-cols-1 md:gap-4">
             <div>
                <p className="text-center text-xs text-slate-400 mb-1">Superior Derecha (Q1) - Superior Izquierda (Q2)</p>
                {renderRow(ADULT_TEETH_UPPER)}
@@ -370,6 +400,24 @@ export default function App() {
   const [token, setToken] = useState(null);
   const [view, setView] = useState('login'); 
   const [patients, setPatients] = useState([]);
+  const sortedPatients = useMemo(() => {
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    return (patients || []).slice().sort((a, b) => {
+      const al = norm(a.apellidos);
+      const bl = norm(b.apellidos);
+      if (al && bl && al !== bl) return al.localeCompare(bl, 'es', { sensitivity: 'base' });
+      if (!al && bl) return 1;
+      if (al && !bl) return -1;
+      const an = norm(a.nombres);
+      const bn = norm(b.nombres);
+      if (an && bn && an !== bn) return an.localeCompare(bn, 'es', { sensitivity: 'base' });
+      if (!an && bn) return 1;
+      if (an && !bn) return -1;
+      const ad = norm(a.dni);
+      const bd = norm(b.dni);
+      return ad.localeCompare(bd);
+    });
+  }, [patients]);
   const [patientsError, setPatientsError] = useState(null);
   const [activePatient, setActivePatient] = useState(null);
   const [activeTab, setActiveTab] = useState('general'); 
@@ -407,7 +455,7 @@ export default function App() {
   const [appointmentEditForm, setAppointmentEditForm] = useState({ title: '', serviceId: '', startAt: '' });
   const [dayModal, setDayModal] = useState({ open: false, date: null });
   const [selectedDay, setSelectedDay] = useState(null);
-  const [dayModalForm, setDayModalForm] = useState({ patientId: '', serviceId: '', time: '', durationMinutes: '', notes: '' });
+  const [dayModalForm, setDayModalForm] = useState({ patientId: '', serviceId: '', time: '', durationMinutes: '30', notes: '' });
   const [rules, setRules] = useState([]);
   const [completeBusyId, setCompleteBusyId] = useState(null);
   
@@ -421,7 +469,7 @@ export default function App() {
   const defaultFollowUpTemplate = 'Hola {nombre} 😊, soy la Dra. Karen. Te escribo para recordarte tu {servicio} el {fecha}. Si tienes alguna duda, cuéntame por aquí. ¡Nos vemos pronto! 🦷✨';
   const [manualReminderOpen, setManualReminderOpen] = useState(false);
   const [manualReminderForm, setManualReminderForm] = useState({ patientId: '', serviceId: '', dueDate: '', dueTime: '', messageText: defaultFollowUpTemplate });
-  const [followRuleForm, setFollowRuleForm] = useState({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate });
+  const [followRuleForm, setFollowRuleForm] = useState({ serviceId: '', delayDays: 7, delayUnit: 'days', templateText: defaultFollowUpTemplate });
   const [editingRuleId, setEditingRuleId] = useState(null);
   const [formErrors, setFormErrors] = useState({ serviceId: '', delayDays: '', templateText: '' });
   const [saveNotice, setSaveNotice] = useState('');
@@ -1025,7 +1073,7 @@ export default function App() {
   }, [activePatient]);
 
   const exportPatientsExcel = () => {
-    const rows = patients.map(p => ({ Apellidos: p.apellidos || '', Nombres: p.nombres || '', DNI: p.dni || '', Telefono: p.telefono || '', Email: p.email || '' }));
+    const rows = sortedPatients.map(p => ({ Apellidos: p.apellidos || '', Nombres: p.nombres || '', DNI: p.dni || '', Telefono: p.telefono || '', Email: p.email || '' }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pacientes');
@@ -1034,7 +1082,7 @@ export default function App() {
 
   const exportPatientsPDF = () => {
     const doc = new jsPDF();
-    autoTable(doc, { head: [['Apellidos','Nombres','DNI','Teléfono','Email']], body: patients.map(p => [p.apellidos || '', p.nombres || '', p.dni || '', p.telefono || '', p.email || '']) });
+    autoTable(doc, { head: [['Apellidos','Nombres','DNI','Teléfono','Email']], body: sortedPatients.map(p => [p.apellidos || '', p.nombres || '', p.dni || '', p.telefono || '', p.email || '']) });
     doc.save('pacientes.pdf');
   };
 
@@ -1364,7 +1412,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 gap-6">
                     <div className="grid gap-4">
-                        {patients.map(patient => (
+                        {sortedPatients.map(patient => (
                             <div key={patient.id} onClick={() => { setActivePatient(patient); setFormData(patient); setView('patient-detail'); setActiveTab('general'); }} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-300 transition-all cursor-pointer group flex justify-between items-center">
                                 <div className="flex items-center space-x-4">
                                     <div className="w-12 h-12 bg-teal-50 text-teal-700 rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0">{patient.nombres?.[0]}{patient.apellidos?.[0]}</div>
@@ -1627,43 +1675,59 @@ export default function App() {
               
 
               {dayModal?.open && (
-                <div className="fixed inset-0 z-50 bg-black/40 flex">
-                  <div className="bg-white w-full h-full max-w-none p-0 flex flex-col">
+                <div className="fixed inset-0 z-50 bg-black/40 flex md:items-center md:justify-center">
+                  <div className="bg-white w-full md:w-[800px] md:max-w-[800px] h-full md:h-auto p-0 flex flex-col md:rounded-xl md:shadow-2xl md:border">
                     <div className="flex items-center justify-between p-4 border-b border-slate-200">
                       <div className="flex items-center gap-3">
                         <button onClick={() => setDayModal({ open: false, date: null })} className="md:hidden inline-flex items-center gap-1 px-2 py-1 text-sm text-slate-700 border border-slate-300 rounded"><ArrowLeft className="w-4 h-4" /> Atrás</button>
-                        <div className="text-xl font-bold text-slate-800">Citas del {dayModal.date ? formatDate(dayModal.date) : ''}</div>
+                        <div className="flex items-center text-xl font-bold text-slate-800"><Calendar className="w-5 h-5 mr-2 text-slate-600" /> Citas del {dayModal.date ? formatDate(dayModal.date) : ''}</div>
                       </div>
                       <button onClick={() => setDayModal({ open: false, date: null })} className="hidden md:inline-flex px-3 py-1.5 text-sm text-slate-700 border border-slate-300 rounded hover:bg-slate-50">Cerrar</button>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 pb-24 grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Paciente*</label>
-                        <select value={dayModalForm?.patientId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, patientId: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full">
-                          <option value="">Selecciona</option>
-                          {patients.map(p => (
-                            <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Servicio*</label>
-                        <select value={dayModalForm?.serviceId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, serviceId: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full">
-                          <option value="">Selecciona</option>
-                          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Hora de la cita*</label>
-                        <input type="time" value={dayModalForm?.time || ''} onChange={e => setDayModalForm(prev => ({ ...prev, time: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Duración (min) opcional</label>
-                        <input type="number" min="5" step="5" placeholder="30" value={dayModalForm?.durationMinutes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, durationMinutes: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Motivo de la cita (opcional)</label>
-                        <textarea rows="2" placeholder="Comentarios o notas" value={dayModalForm?.notes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, notes: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
+                    <div className="flex-1 overflow-y-auto p-4 pb-24">
+                      <div className="bg-slate-100 border border-slate-200 rounded-lg p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Paciente*</label>
+                            <div className="relative">
+                              <Search className="absolute left-2 top-2.5 w-4 h-4 text-slate-400" />
+                              <select value={dayModalForm?.patientId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, patientId: e.target.value }))} className="pl-8 p-2 border rounded text-base md:text-sm w-full">
+                                <option value="">Selecciona</option>
+                                {sortedPatients.map(p => (
+                                  <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Servicio*</label>
+                            <div className="relative">
+                              <DollarSign className="absolute left-2 top-2.5 w-4 h-4 text-slate-400" />
+                              <select value={dayModalForm?.serviceId || ''} onChange={e => setDayModalForm(prev => ({ ...prev, serviceId: e.target.value }))} className="pl-8 p-2 border rounded text-base md:text-sm w-full">
+                                <option value="">Selecciona</option>
+                                {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Hora de la Cita*</label>
+                            <div className="relative">
+                              <Clock className="absolute left-2 top-2.5 w-4 h-4 text-slate-400" />
+                              <input type="time" value={dayModalForm?.time || ''} onChange={e => setDayModalForm(prev => ({ ...prev, time: e.target.value }))} className="pl-8 p-2 border rounded text-base md:text-sm w-full" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Duración (Min)</label>
+                            <div className="relative">
+                              <input type="number" min="5" step="5" value={dayModalForm?.durationMinutes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, durationMinutes: e.target.value }))} className="p-2 pr-8 border rounded text-base md:text-sm w-full" />
+                              <ChevronRight className="absolute right-2 top-2.5 w-4 h-4 text-slate-400" />
+                            </div>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-1">Motivo de la Cita</label>
+                            <textarea rows="2" placeholder="Comentarios o notas" value={dayModalForm?.notes || ''} onChange={e => setDayModalForm(prev => ({ ...prev, notes: e.target.value }))} className="p-2 border rounded text-base md:text-sm w-full" />
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center justify-between p-4 border-t border-slate-200">
@@ -1697,7 +1761,7 @@ export default function App() {
                               const r = await createReminder(token, { patientId: dayModalForm.patientId, serviceId: sid, dueAt: start.toISOString(), messageText: msg, channel: 'whatsapp', appointmentId: created.id });
                               setReminders(prev => [r, ...prev]);
                             } catch (e) { void e }
-                            setDayModalForm({ patientId: '', serviceId: '', time: '', durationMinutes: '', notes: '' });
+                            setDayModalForm({ patientId: '', serviceId: '', time: '', durationMinutes: '30', notes: '' });
                             alert('Cita creada');
                           } catch (e) { alert(e?.message || 'Error creando cita'); }
                         }} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-base md:text-sm font-bold">Crear</button>
@@ -1781,7 +1845,7 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
                     <select value={manualReminderForm.patientId} onChange={e => setManualReminderForm({ ...manualReminderForm, patientId: e.target.value })} className="p-2 border rounded text-sm">
                       <option value="">Paciente</option>
-                      {patients.map(p => <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>)}
+                      {sortedPatients.map(p => <option key={p.id} value={p.id}>{p.apellidos}, {p.nombres}</option>)}
                     </select>
                     <select value={manualReminderForm.serviceId} onChange={e => setManualReminderForm({ ...manualReminderForm, serviceId: e.target.value })} className="p-2 border rounded text-sm">
                       <option value="">Servicio (opcional)</option>
@@ -1888,7 +1952,7 @@ export default function App() {
                 if (!token) return;
                 const errs = { serviceId: '', delayDays: '', templateText: '' };
                 if (!followRuleForm.serviceId) errs.serviceId = 'Selecciona el servicio';
-                if (followRuleForm.delayDays === '' || Number(followRuleForm.delayDays) <= 0) errs.delayDays = 'Por favor, introduce un número de días válido';
+                if (followRuleForm.delayDays === '' || Number(followRuleForm.delayDays) <= 0) errs.delayDays = 'Por favor, introduce un número válido';
                 if (!followRuleForm.templateText || !followRuleForm.templateText.trim()) errs.templateText = 'Ingresa un mensaje';
                 if (errs.serviceId || errs.delayDays || errs.templateText) { setFormErrors(errs); return; }
                 const svcName = services.find(s => s.id === followRuleForm.serviceId)?.name || 'Servicio';
@@ -1918,8 +1982,26 @@ export default function App() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Enviar recordatorio después de</label>
                   <div className="flex items-center gap-2">
-                    <input type="number" min="1" step="1" value={followRuleForm.delayDays} onChange={e => setFollowRuleForm(prev => ({ ...prev, delayDays: Number(e.target.value) }))} className="p-2 border rounded text-sm w-24" />
-                    <span className="text-slate-600 text-sm">días</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={followRuleForm.delayUnit === 'months' ? Math.max(1, Math.round(Number(followRuleForm.delayDays || 0) / 30)) : Number(followRuleForm.delayDays || 0)}
+                      onChange={e => {
+                        const raw = Number(e.target.value);
+                        const asDays = followRuleForm.delayUnit === 'months' ? raw * 30 : raw;
+                        setFollowRuleForm(prev => ({ ...prev, delayDays: asDays }));
+                      }}
+                      className="p-2 border rounded text-sm w-24"
+                    />
+                    <select
+                      value={followRuleForm.delayUnit}
+                      onChange={e => setFollowRuleForm(prev => ({ ...prev, delayUnit: e.target.value }))}
+                      className="p-2 border rounded text-sm"
+                    >
+                      <option value="days">días</option>
+                      <option value="months">meses</option>
+                    </select>
                   </div>
                   {!!formErrors.delayDays && (<div className="text-red-600 text-xs mt-1">{formErrors.delayDays}</div>)}
                 </div>
@@ -1939,7 +2021,7 @@ export default function App() {
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                     Guardar
                   </button>
-                  {editingRuleId && <button type="button" onClick={() => { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate }); setFormErrors({ serviceId: '', delayDays: '', templateText: '' }); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-4 py-2 rounded text-sm font-bold">Cancelar</button>}
+                  {editingRuleId && <button type="button" onClick={() => { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, delayUnit: 'days', templateText: defaultFollowUpTemplate }); setFormErrors({ serviceId: '', delayDays: '', templateText: '' }); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-4 py-2 rounded text-sm font-bold">Cancelar</button>}
                 </div>
               </form>
               {!!rules.length && (
@@ -1948,11 +2030,11 @@ export default function App() {
                     <div key={r.id} className="flex items-center justify-between border border-slate-200 bg-white rounded px-3 py-2 text-xs">
                       <div>
                         <div className="font-semibold text-slate-800">{services.find(s => s.id === r.serviceId)?.name || r.serviceId}</div>
-                        <div className="text-slate-600">Seguimiento: {r.delayDays ? `${r.delayDays} días` : 'Ninguno'} • Activo: {r.enabled ? 'Sí' : 'No'}</div>
+                        <div className="text-slate-600">Seguimiento: {r.delayDays ? (Number(r.delayDays) % 30 === 0 && Number(r.delayDays) >= 30 ? `${Math.round(Number(r.delayDays) / 30)} meses` : `${r.delayDays} días`) : 'Ninguno'} • Activo: {r.enabled ? 'Sí' : 'No'}</div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => { setFollowRuleForm({ serviceId: r.serviceId, delayDays: Number(r.delayDays || 0), templateText: r.templateText || defaultFollowUpTemplate }); setEditingRuleId(r.id); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-3 py-1 rounded text-xs font-bold">Editar</button>
-                        <button onClick={async () => { try { await deleteReminderRule(token, r.id); setRules(prev => prev.filter(x => x.id !== r.id)); if (editingRuleId === r.id) { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, templateText: defaultFollowUpTemplate }); } } catch (e) { alert(e?.message || 'Error eliminando configuración'); } }} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded text-xs font-bold">Eliminar</button>
+                        <button onClick={() => { const dd = Number(r.delayDays || 0); const du = (dd >= 30 && dd % 30 === 0) ? 'months' : 'days'; setFollowRuleForm({ serviceId: r.serviceId, delayDays: dd, delayUnit: du, templateText: r.templateText || defaultFollowUpTemplate }); setEditingRuleId(r.id); }} className="text-slate-700 bg-slate-50 border border-slate-200 px-3 py-1 rounded text-xs font-bold">Editar</button>
+                        <button onClick={async () => { try { await deleteReminderRule(token, r.id); setRules(prev => prev.filter(x => x.id !== r.id)); if (editingRuleId === r.id) { setEditingRuleId(null); setFollowRuleForm({ serviceId: '', delayDays: 7, delayUnit: 'days', templateText: defaultFollowUpTemplate }); } } catch (e) { alert(e?.message || 'Error eliminando configuración'); } }} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded text-xs font-bold">Eliminar</button>
                       </div>
                     </div>
                   ))}
@@ -2000,19 +2082,20 @@ export default function App() {
                 <div className="md:hidden flex items-center mb-4">
                     <button onClick={() => { setView('dashboard'); setFormData(initialFormState); }} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-slate-900 text-white hover:bg-slate-800"><ArrowLeft className="w-4 h-4" /> Atrás</button>
                 </div>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6 text-sm">
+                <div className="flex flex-col gap-1 mb-4 text-sm">
                     <div className="flex items-center min-w-0">
                       <button onClick={() => { setView('dashboard'); setFormData(initialFormState); }} className="text-slate-500 hover:text-slate-800 whitespace-nowrap flex-shrink-0">Pacientes</button>
                       <ChevronRight className="w-4 h-4 mx-2 text-slate-300 flex-shrink-0" />
                       <span className="font-semibold text-slate-800 truncate max-w-[70vw] sm:max-w-none">{activePatient.apellidos}, {activePatient.nombres}</span>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button onClick={() => setEmailModal({ open: true, to: '', context: 'all' })} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold whitespace-nowrap">Enviar todo</button>
+                    <div className="flex items-center gap-2 flex-wrap text-slate-500">
+                      {activePatient.dni && (<span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">DNI: {activePatient.dni}</span>)}
+                      {activePatient.telefono && (<span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">Tel: {activePatient.telefono}</span>)}
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                    <div className="md:col-span-3 lg:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-row md:flex-col gap-2 fixed top-16 left-0 right-0 md:sticky md:top-24 md:left-auto md:right-auto z-30 overflow-x-auto md:overflow-visible scrollbar-hide">
+                    <div className="md:col-span-3 lg:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-row md:flex-col gap-2 sticky top-16 md:top-24 z-30 overflow-x-auto md:overflow-visible scrollbar-hide w-full">
                         <div className="hidden md:block mb-4 px-2"><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Menú Principal</p></div>
                         <button onClick={() => setActiveTab('general')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'general' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><User className="w-4 h-4" /><span>Datos Generales</span></button>
                         <button onClick={() => setActiveTab('evolution')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'evolution' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><Wallet className="w-4 h-4" /><span>Evolución y Pagos</span></button>
@@ -2229,9 +2312,9 @@ export default function App() {
 
                         {activeTab === 'initial' && (
                             <div>
-                                <div className="flex items-center justify-between mb-4">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
                                   <h2 className="text-xl font-bold flex items-center text-slate-800"><Activity className="w-5 h-5 mr-2 text-teal-600" /> Odontograma de Ingreso</h2>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex flex-wrap items-center gap-2">
                                     <button onClick={exportOdontogramExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar Excel</button>
                                     <button onClick={() => { const d = buildOdontogramPDF(); d.save('odontograma_ingreso.pdf'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar PDF</button>
                                     <button onClick={() => setEmailModal({ open: true, to: '', context: 'odontogram' })} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold">Enviar por correo</button>
@@ -2243,9 +2326,9 @@ export default function App() {
 
                         {activeTab === 'progress' && (
                             <div>
-                                <div className="flex justify-between items-center mb-4">
+                                <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-4">
                                     <h2 className="text-xl font-bold text-slate-800">Registrar Avance</h2>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                       <button onClick={exportProgressExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar Excel</button>
                                       <button onClick={() => { const d = buildProgressPDF(); d.save('historial_avances.pdf'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar PDF</button>
                                       <button onClick={() => setEmailModal({ open: true, to: '', context: 'progress' })} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold">Enviar por correo</button>
