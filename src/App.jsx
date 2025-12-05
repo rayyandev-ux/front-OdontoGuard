@@ -1641,6 +1641,7 @@ export default function App() {
                   <button onClick={exportPatientsPDF} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar PDF</button>
                   <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap">Crear nuevo paciente</button>
                   <button onClick={goToUpload} className="hidden md:inline-flex bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap"><Upload className="w-4 h-4 mr-2"/> Subir por foto</button>
+                  <button onClick={goToUpload} className="md:hidden inline-flex bg-teal-600 hover:bg-teal-700 text-white p-2 rounded-lg shadow-sm"><Upload className="w-5 h-5"/></button>
                   
                 </div>
                 </div>
