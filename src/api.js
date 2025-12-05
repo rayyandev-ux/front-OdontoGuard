@@ -51,6 +51,20 @@ export async function deletePatient(token, id) {
   return res.json()
 }
 
+export async function extractPatientFromImages(token, images) {
+  const res = await fetch(`${API_BASE}/api/ai/extract-patient`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ images })
+  })
+  if (!res.ok) {
+    let msg = 'AI extract failed'
+    try { const j = await res.json(); msg = j?.error || msg } catch { try { msg = await res.text() } catch { void 0 } }
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
 export async function listServices(token) {
   const res = await fetch(`${API_BASE}/api/services`, {
     headers: { Authorization: `Bearer ${token}` }

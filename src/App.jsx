@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail, listAppointments, createAppointment, updateAppointment, deleteAppointment, listReminderRules, createReminderRule, updateReminderRule, deleteReminderRule, listReminders, createReminder, deleteReminder, processDueReminders, sendReminderNow, listMessageLogs } from './api.js'
+import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail, listAppointments, createAppointment, updateAppointment, deleteAppointment, listReminderRules, createReminderRule, updateReminderRule, deleteReminderRule, listReminders, createReminder, deleteReminder, processDueReminders, sendReminderNow, listMessageLogs, extractPatientFromImages } from './api.js'
 import { 
   User, 
   FileText, 
@@ -38,6 +38,7 @@ import {
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import Tesseract from 'tesseract.js';
 
 const DNI_API_KEY = "9471419289872be41891b833cdafbf78561b067536c9aedc4fc001f869973138";
 const DNI_API_URL = "https://apiperu.dev/api/dni";
@@ -621,6 +622,9 @@ export default function App() {
   const [examForm, setExamForm] = useState(defaultExamForm);
   const progressFileInputRef = useRef(null);
   const generalFileInputRef = useRef(null);
+  const uploadFileInputRef = useRef(null);
+  const [uploadImages, setUploadImages] = useState([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const initialFormState = {
     nombres: '', apellidos: '', sexo: 'M', dni: '',
     fechaNacimiento: '', edad: '',
@@ -639,6 +643,7 @@ export default function App() {
     general_attachments: []
   };
   const [formData, setFormData] = useState(initialFormState);
+  useEffect(() => { try { if (window.location?.pathname === '/upload') setView('upload'); } catch (e) { void e } }, []);
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
@@ -850,6 +855,220 @@ export default function App() {
       } catch (e) { alert('Error eliminando anexo: ' + (e?.message || e)); }
   };
 
+  const goToUpload = () => { setView('upload'); try { window.history.pushState(null, '', '/upload'); } catch (e) { void e } };
+
+  const openUploadDialog = () => { if (uploadFileInputRef.current) uploadFileInputRef.current.click(); };
+
+  const handleUploadFilesSelected = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const remaining = Math.max(0, 20 - uploadImages.length);
+    const selected = files.slice(0, remaining);
+    if (files.length > remaining) alert('Solo se permiten hasta 20 fotos por historial clínico.');
+    try {
+      const items = await Promise.all(selected.map(async (f) => ({ id: Date.now().toString() + '_' + f.name, type: 'image', name: f.name, url: await fileToDataURL(f), size: f.size })));
+      setUploadImages(prev => [...prev, ...items]);
+    } catch (err) { alert('Error leyendo archivos: ' + (err?.message || err)); }
+    e.target.value = '';
+  };
+
+  const removeUploadImage = (id) => { setUploadImages(prev => prev.filter(i => i.id !== id)); };
+
+  const normalizeDate = (s) => {
+    if (!s) return '';
+    const m1 = s.match(new RegExp('(\\d{4})[-/](\\d{2})[-/](\\d{2})'));
+    const m2 = s.match(new RegExp('(\\d{2})[-/](\\d{2})[-/](\\d{4})'));
+    if (m1) return `${m1[1]}-${m1[2]}-${m1[3]}`;
+    if (m2) return `${m2[3]}-${m2[2]}-${m2[1]}`;
+    return '';
+  };
+
+  const extractDataFromText = (raw) => {
+    const text = (raw || '').replace(/\r/g, '');
+    const pick = (re) => { const m = text.match(re); return m && m[1] ? String(m[1]).trim() : ''; };
+    let nombres = pick(/Nombres\s*[-:]?\s*(.+)/i);
+    let apellidos = pick(/Apellidos\s*[-:]?\s*(.+)/i);
+    const lines = text.split(/\n+/).map(s => s.trim()).filter(s => s.length);
+    const bothIdx = lines.findIndex(l => /nombres?.{0,40}apellid/i.test(l));
+    if (bothIdx >= 0) {
+      let both = lines[bothIdx].replace(/^.*apellid\s*(?:o|os)?\s*[-:]?\s*/i, '').trim();
+      if (!both || both.length < 3) {
+        for (let j = bothIdx + 1; j < Math.min(lines.length, bothIdx + 3); j++) {
+          if (/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/.test(lines[j])) { both = lines[j].trim(); break; }
+        }
+      }
+      const parts = both.split(/\s+/).filter(Boolean);
+      if (parts.length >= 3) { apellidos = parts.slice(-2).join(' '); nombres = parts.slice(0, -2).join(' '); }
+      else if (parts.length === 2) { nombres = parts[0]; apellidos = parts[1]; }
+      else if (parts.length === 1) { nombres = parts[0]; }
+    }
+    if (!apellidos) {
+      const both = pick(/Nombres\s*y\s*Apellid[oa]s?\s*[-:]?\s*(.+)/i);
+      if (both) {
+        const parts = both.split(/\s+/).filter(Boolean);
+        if (parts.length >= 3) { apellidos = parts.slice(-2).join(' '); nombres = parts.slice(0, -2).join(' '); }
+        else if (parts.length === 2) { nombres = parts[0]; apellidos = parts[1]; }
+      }
+    }
+    const dni = pick(/DNI\s*[-:]?\s*(\d{8})/i);
+    const sexoRaw = pick(/Sexo\s*[-:]?\s*(Masculino|Femenino|M|F)/i);
+    const sexo = sexoRaw ? (sexoRaw.toUpperCase().startsWith('M') ? 'M' : 'F') : 'M';
+    const fechaNacimiento = normalizeDate(pick(/Fecha\s*Nacimiento\s*[-:]?\s*([\d/-]+)/i) || pick(/F\.?\s*Nac\.?\s*[-:]?\s*([\d/-]+)/i));
+    const edad = fechaNacimiento ? calculateAge(fechaNacimiento) : pick(/Edad\s*[-:]?\s*(\d{1,3})/i);
+    const lugarNacimiento = pick(/Lugar\s*Nacimiento\s*[-:]?\s*(.+)/i);
+    const lugarProcedencia = pick(/Lugar\s*Procedencia\s*[-:]?\s*(.+)/i);
+    const domicilio = pick(/Domicilio\s*[-:]?\s*(.+)/i);
+    const telefono = (pick(/Tel[eé]fono\s*[-:]?\s*([\d\s+-]+)/i) || '').replace(/[^\d]/g, '');
+    const email = pick(/Email\s*[-:]?\s*([^\s]+)/i);
+    const estadoCivil = pick(/Estado\s*Civil\s*[-:]?\s*(Soltero|Casado|Divorciado|Viudo)/i);
+    const gradoInstruccion = pick(/Grado\s*Instrucci[oó]n\s*[-:]?\s*(.+)/i);
+    const profesion = pick(/Profes[ií]?[oó]n\s*[-:]?\s*(.+)/i);
+    const ocupacion = pick(/Ocupaci[oó]n\s*[-:]?\s*(.+)/i);
+    const centroEstudios = pick(/Centro\s*de\s*Estudios\s*[-:]?\s*(.+)/i);
+    const direccionCentroEstudios = pick(/Direcci[oó]n\s*del\s*Centro\s*[-:]?\s*(.+)/i);
+    const religion = pick(/Religi[oó]n\s*[-:]?\s*(.+)/i);
+    const medicoTratante = pick(/M[eé]dico\s*Tratante\s*[-:]?\s*(.+)/i);
+    const emBlock = text.split(/Contacto\s*de\s*Emergencia/i)[1] || '';
+    const emergenciaNombre = (() => { const m = emBlock.match(/Nombre\s*[-:]?\s*(.+)/i); return m && m[1] ? m[1].trim() : pick(/Contacto\s*de\s*Emergencia[\s\S]*?Nombre\s*[-:]?\s*(.+)/i); })();
+    const emergenciaParentesco = (() => { const m = emBlock.match(/Parentesco\s*[-:]?\s*(.+)/i); return m && m[1] ? m[1].trim() : pick(/Parentesco\s*[-:]?\s*(.+)/i); })();
+    const emergenciaDomicilio = (() => { const m = emBlock.match(/Domicilio\s*[-:]?\s*(.+)/i); return m && m[1] ? m[1].trim() : pick(/Domicilio\s*[-:]?\s*(.+)/i); })();
+    const emergenciaTelefono = (() => { const m = emBlock.match(/Tel[eé]fono\s*[-:]?\s*([\d\s+-]+)/i); return m && m[1] ? m[1].replace(/[^\d]/g, '') : pick(/Tel[eé]fono\s*[-:]?\s*([\d\s+-]+)/i).replace(/[^\d]/g, ''); })();
+
+    const habitos = pick(/H[aá]bitos\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const antecedentesFamiliares = pick(/Familiares\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const farmacologicos = pick(/Farmacol[oó]gicos.*\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const noFarmacologicos = pick(/No\s*farmacol[oó]gicos.*\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const otrosAntecedentes = pick(/Otros\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const examenFisicoGeneral = pick(/General\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const cabeza = pick(/Cabeza\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const cuello = pick(/Cuello\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const cara = pick(/Cara\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const examenExtraoral = pick(/Examen\s*extraoral\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const labios = pick(/Labios\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const mejilla = pick(/Mejilla\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const mucosa = pick(/Mucosa\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const paladarDuro = pick(/Paladar\s*duro\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const paladarBlando = pick(/Paladar\s*blando\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const tipoDeBoca = pick(/Tipo\s*de\s*boca\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const clase = pick(new RegExp('Clase\\s*[-:]?\\s*(?:I{1,3}|1|2|3|I\\s*/\\s*II\\s*/\\s*III|[IVX]+)', 'i')) || pick(/Clase\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const observaciones = pick(/Observaciones\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const rx = pick(/RX\s*[-:]?\s*(Sí|Si|No)/i);
+    const rpo = pick(/RPO\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const rmo = pick(/RMO\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const obl = pick(/OBL\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const laboratorioClinico = pick(/Laboratorio\s*cl[ií]nico\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const diagnosticoDefinitivo = pick(/Diagn[oó]stico\s*definitivo\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const planTratamiento = pick(/Plan\s*de\s*tratamiento\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+    const pronostico = pick(/Pron[oó]stico\s*[-:]?\s*([\s\S]*?)(?:\n|$)/i);
+
+    const namesObj = { nombres, apellidos };
+    const general = {
+      ...namesObj,
+      sexo,
+      dni,
+      fechaNacimiento,
+      edad,
+      lugarNacimiento,
+      lugarProcedencia,
+      domicilio,
+      telefono,
+      email,
+      estadoCivil,
+      gradoInstruccion,
+      profesion,
+      ocupacion,
+      centroEstudios,
+      direccionCentroEstudios,
+      religion,
+      medicoTratante,
+      emergenciaNombre,
+      emergenciaParentesco,
+      emergenciaDomicilio,
+      emergenciaTelefono
+    };
+    const exam = {
+      habitos,
+      antecedentesFamiliares,
+      farmacologicos,
+      noFarmacologicos,
+      otrosAntecedentes,
+      examenFisicoGeneral,
+      examenFisicoRegional: { cabeza, cuello, cara },
+      examenExtraoral,
+      examenIntraoral: { labios, mejilla, mucosa, paladarDuro, paladarBlando, tipoDeBoca },
+      analisisOclusion: { clase, observaciones },
+      examenesComplementarios: { rx, rpo, rmo, obl },
+      laboratorioClinico,
+      diagnosticoDefinitivo,
+      planTratamiento,
+      pronostico
+    };
+    return { general, exam };
+  };
+
+  const analyzeFotos = async () => {
+    if (!token) { alert('Debe iniciar sesión'); return; }
+    if (!uploadImages.length) { alert('Suba al menos 1 foto'); return; }
+    setIsAnalyzing(true);
+    try {
+      const imgs = uploadImages.map(i => ({ url: i.url, name: i.name }));
+      const ai = await extractPatientFromImages(token, imgs);
+      const general = ai.general || {};
+      const exam = ai.exam || {};
+      const treatments = Array.isArray(ai.treatments) ? ai.treatments : [];
+      const payload = {
+        ...initialFormState,
+        ...general,
+        edad: general.fechaNacimiento ? calculateAge(general.fechaNacimiento) : general.edad || '',
+        antecedentes: JSON.stringify({ ...defaultExamForm, ...exam }),
+        odontogram_initial: {},
+        progress_records: [],
+        treatments,
+        general_attachments: uploadImages
+      };
+      const created = await createPatient(token, payload);
+      setPatients(prev => [created, ...prev]);
+      setActivePatient(created);
+      setFormData(created);
+      setUploadImages([]);
+      setView('patient-detail');
+      setActiveTab('attachments');
+      alert('Paciente creado a partir de fotos');
+    } catch {
+      try {
+        const results = [];
+        for (const img of uploadImages) {
+          const r = await Tesseract.recognize(img.url, 'spa', { langPath: 'https://tessdata.projectnaptha.com/4.0.0' });
+          results.push(r?.data?.text || '');
+        }
+        const combined = results.join('\n\n');
+        const { general, exam } = extractDataFromText(combined);
+        const payload = {
+          ...initialFormState,
+          ...general,
+          edad: general.fechaNacimiento ? calculateAge(general.fechaNacimiento) : general.edad || '',
+          antecedentes: JSON.stringify({ ...defaultExamForm, ...exam }),
+          odontogram_initial: {},
+          progress_records: [],
+          treatments: [],
+          general_attachments: uploadImages
+        };
+        const created = await createPatient(token, payload);
+        setPatients(prev => [created, ...prev]);
+        setActivePatient(created);
+        setFormData(created);
+        setUploadImages([]);
+        setView('patient-detail');
+        setActiveTab('attachments');
+        alert('Paciente creado con OCR');
+      } catch (err) {
+        alert('Error analizando/creando paciente: ' + (err?.message || err));
+      }
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleSaveProgress = async (odontogramData) => {
     if (!activePatient) return;
     if (!progressForm.date) { alert("Por favor ingrese la fecha del avance."); return; }
@@ -865,6 +1084,21 @@ export default function App() {
       setSelectedProgress(null);
       alert("Avance registrado correctamente.");
     } catch (e) { alert("Error guardando avance: " + (e?.message || e)); }
+  };
+
+  const handleDeleteProgress = async (recordId) => {
+      setConfirmModal({
+          isOpen: true,
+          message: "¿Eliminar este avance clínico? Esta acción no se puede deshacer.",
+          onConfirm: async () => {
+            try {
+              const updatedRecords = (activePatient.progress_records || []).filter(r => r.id !== recordId);
+              await updatePatient(token, activePatient.id, { progress_records: updatedRecords });
+              setActivePatient(prev => ({ ...prev, progress_records: updatedRecords }));
+              if (selectedProgress && selectedProgress.id === recordId) { setIsCreatingProgress(false); setSelectedProgress(null); }
+            } catch (e) { alert("Error eliminando avance: " + (e?.message || e)); }
+          }
+      });
   };
 
   
@@ -1406,6 +1640,7 @@ export default function App() {
                   <button onClick={exportPatientsExcel} className="hidden md:inline-flex bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar Excel</button>
                   <button onClick={exportPatientsPDF} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar PDF</button>
                   <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap">Crear nuevo paciente</button>
+                  <button onClick={goToUpload} className="hidden md:inline-flex bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap"><Upload className="w-4 h-4 mr-2"/> Subir por foto</button>
                   
                 </div>
                 </div>
@@ -1527,6 +1762,49 @@ export default function App() {
                 </div>
               </div>
             </div>
+        )}
+
+        {view === 'upload' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Upload className="w-6 h-6 mr-2 text-teal-600" /> Subir por foto</h2>
+              <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+            </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                <div className="md:col-span-2">
+                  <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 bg-slate-50 text-center">
+                    <p className="text-slate-600 mb-3">Sube hasta 20 fotos del historial clínico</p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button onClick={openUploadDialog} className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-bold"><Camera className="w-4 h-4 mr-2"/> Seleccionar fotos</button>
+                      <input ref={uploadFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUploadFilesSelected} />
+                    </div>
+                  </div>
+                  {uploadImages.length > 0 && (
+                    <div className="mt-4">
+                      <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                        {uploadImages.map(img => (
+                          <div key={img.id} className="relative aspect-square bg-white rounded-lg border border-slate-200 overflow-hidden">
+                            <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                            <button onClick={() => removeUploadImage(img.id)} className="absolute top-1 right-1 bg-white/90 text-red-600 rounded-full p-1 border border-red-200 hover:bg-red-50"><X className="w-3 h-3"/></button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="md:col-span-1">
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <p className="text-sm text-slate-600">Analiza las fotos y crea el paciente automáticamente.</p>
+                    <button onClick={analyzeFotos} disabled={isAnalyzing || uploadImages.length === 0} className="w-full mt-3 bg-teal-600 hover:bg-teal-700 disabled:bg-slate-400 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center">
+                      {isAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Upload className="w-4 h-4 mr-2"/>}
+                      Analizar fotos
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {view === 'agenda' && (
@@ -2370,7 +2648,10 @@ export default function App() {
                                                             <p className="text-slate-600 text-sm line-clamp-2">{record.notes || 'Sin notas adicionales.'}</p>
                                                         </div>
                                                     </div>
-                                                    <ChevronRight className="text-slate-300" />
+                                                    <div className="flex items-center space-x-2">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProgress(record.id); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                                        <ChevronRight className="text-slate-300" />
+                                                    </div>
                                                 </div>
                                             ))
                                         )}
@@ -2414,8 +2695,11 @@ export default function App() {
                                                     </div>
                                                 </div>
                                             )}
-                                            <div className="md:col-span-12">
+                                            <div className="md:col-span-12 flex items-center gap-2">
                                                 <button onClick={() => handleSaveProgress(progressOdontogram)} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Guardar Avance</button>
+                                                {selectedProgress?.id !== 'new' && (
+                                                  <button onClick={() => handleDeleteProgress(selectedProgress.id)} className="text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-bold">Eliminar Avance</button>
+                                                )}
                                             </div>
                                             <div className="md:col-span-12 min-w-0">
                                                 <Odontogram key={selectedProgress.id} type="progress" data={selectedProgress.odontogramData} onSave={(data) => handleSaveProgress(data)} onChange={(d) => setProgressOdontogram(d)} />
