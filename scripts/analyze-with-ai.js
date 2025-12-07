@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import process from 'node:process'
 
 const API = process.env.VITE_API_BASE || 'http://localhost:4000'
 

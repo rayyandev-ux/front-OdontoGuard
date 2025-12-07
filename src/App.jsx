@@ -1,59 +1,54 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail, listAppointments, createAppointment, updateAppointment, deleteAppointment, listReminderRules, createReminderRule, updateReminderRule, deleteReminderRule, listReminders, createReminder, deleteReminder, processDueReminders, sendReminderNow, listMessageLogs, extractPatientFromImages } from './api.js'
+import { login as apiLogin, listPatients, createPatient, updatePatient, deletePatient, listServices, createService, updateService, deleteService, sendEmail, listAppointments, createAppointment, updateAppointment, deleteAppointment, listReminderRules, createReminderRule, updateReminderRule, deleteReminderRule, listReminders, createReminder, deleteReminder, processDueReminders, sendReminderNow, listMessageLogs, extractPatientFromImages, listDeletedPatients, recoverPatient } from './api.js'
 import { 
   User, 
   FileText, 
-  FileSpreadsheet,
   Activity, 
   Image as ImageIcon, 
   Save, 
   Plus, 
   Search, 
-  LogOut, 
   Trash2, 
   ChevronRight,
-  Stethoscope,
   AlertCircle,
   CheckCircle2,
   X,
-  Phone,
-  Briefcase,
   MapPin,
-  Heart,
   Loader2,
   Wallet,
-  DollarSign,
-  Calendar,
-  Clock,
   ArrowLeft,
-  History,
-  CreditCard,
-  Stethoscope as StethoscopeIcon,
+  Briefcase,
   AlertTriangle,
+  Calendar,
+  Phone,
   Upload,
-  FileImage,
+  FileSpreadsheet,
+  DollarSign,
+  Clock,
+  History,
+  Heart,
+  Pencil,
   Camera,
-  Pencil
+  CreditCard,
+  FileImage,
+  Stethoscope as StethoscopeIcon
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import Tesseract from 'tesseract.js';
 
+// New Components
+import MainLayout from './components/Layout/MainLayout';
+import LoginForm from './components/Auth/LoginForm';
+import RealisticOdontogram from './components/Odontogram/RealisticOdontogram';
+import ConfirmationModal from './components/Common/ConfirmationModal';
+
 const DNI_API_KEY = "9471419289872be41891b833cdafbf78561b067536c9aedc4fc001f869973138";
 const DNI_API_URL = "https://apiperu.dev/api/dni";
 const LOGIN_EMAIL = 'odontokaren@odonto.com';
 const LOGIN_PASSWORD = 'odonto123karen';
 const ACCESS_CODE = 'ODONTO-ACCESS-2025';
-
-const TOOLS = {
-  SELECT: { id: 'select', label: 'Seleccionar', color: 'transparent' },
-  CARIES: { id: 'caries', label: 'Caries (Rojo)', color: '#ef4444' },
-  RESIN: { id: 'resin', label: 'Restauración (Azul)', color: '#3b82f6' },
-  SEALANT: { id: 'sealant', label: 'Sellante (Verde)', color: '#22c55e' },
-  MISSING: { id: 'missing', label: 'Ausente (X)', color: '#1f2937' },
-  CROWN: { id: 'crown', label: 'Corona (Círculo)', color: '#eab308' },
-};
 
 const SERVICES = [
   { name: 'Resina simple', price: 50 },
@@ -91,10 +86,7 @@ const SERVICES = [
 
 const slug = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-const ADULT_TEETH_UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
-const ADULT_TEETH_LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
-const CHILD_TEETH_UPPER = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65];
-const CHILD_TEETH_LOWER = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75];
+
 
 const calculateAge = (dob) => {
   if (!dob) return '';
@@ -108,299 +100,21 @@ const calculateAge = (dob) => {
   return age.toString();
 };
 
-const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => {
-  if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 transform transition-all scale-100">
-        <div className="flex items-center mb-4 text-red-600">
-            <div className="bg-red-100 p-2 rounded-full mr-3">
-                <AlertTriangle className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800">Confirmar Acción</h3>
-        </div>
-        <p className="text-slate-600 mb-6 ml-11 text-sm leading-relaxed">{message}</p>
-        <div className="flex justify-end space-x-3">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors">Cancelar</button>
-          <button 
-            onClick={() => { onConfirm(); onClose(); }} 
-            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 shadow-md transition-colors"
-          >
-            Eliminar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
-const LoginForm = ({ onLogin }) => {
-  const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [accessCode, setAccessCode] = useState('');
-  const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await onLogin(email, password);
-    } catch (e) {
-      setError(e?.message || 'Error de inicio de sesión');
-      setLoading(false);
-      return;
-    }
-    setLoading(false);
-  };
 
-  return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border-t-4 border-teal-600">
-        <div className="flex justify-center mb-6">
-          <div className="bg-teal-100 p-4 rounded-full">
-            <Stethoscope className="w-10 h-10 text-teal-700" />
-          </div>
-        </div>
-        <h2 className="text-2xl font-bold text-center text-slate-800 mb-2">OdontoKaren</h2>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-          <input 
-            type="email" 
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-            placeholder="Email"
-          />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña</label>
-          <input 
-            type="password" 
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-            placeholder="Contraseña"
-          />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Código de Acceso</label>
-          <input 
-            type="text" 
-            value={accessCode}
-            onChange={(e) => setAccessCode(e.target.value)}
-            className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:outline-none"
-            placeholder="Código de Acceso"
-          />
-          </div>
-          {error && (
-            <div className="flex items-center text-red-600 text-sm"><AlertTriangle className="w-4 h-4 mr-2" />{error}</div>
-          )}
-          <button 
-            disabled={loading}
-            className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-lg transition-colors flex justify-center items-center"
-          >
-            {loading ? 'Accediendo...' : 'Ingresar al Sistema'}
-          </button>
-        </form>
-        
-      </div>
-    </div>
-  );
-};
 
-const Tooth = ({ id, data, activeTool, onUpdate }) => {
-  const handleFaceClick = (face) => {
-    if (!activeTool || activeTool === 'select') return;
-    const currentStatus = data?.[face];
-    const newStatus = currentStatus === activeTool ? null : activeTool;
-    onUpdate(id, face, newStatus);
-  };
 
-  const getFaceColor = (face) => {
-    const toolId = data?.[face];
-    return toolId ? TOOLS[toolId.toUpperCase()]?.color : 'white';
-  };
 
-  const isMissing = Object.values(data || {}).some(v => v === 'missing');
 
-  return (
-    <div className="tooth-item flex flex-col items-center mx-0.5 mb-4 flex-shrink-0">
-      <span className="text-xs text-slate-100 font-mono mb-1">{id}</span>
-      <div className="relative w-9 h-9 md:w-10 md:h-10 shadow-sm">
-        {isMissing && (
-           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-             <X className="w-12 h-12 text-white opacity-90" strokeWidth={3} />
-           </div>
-        )}
-        <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-sm cursor-pointer">
-           <polygon points="0,0 100,0 70,30 30,30" fill={getFaceColor('top')} stroke="#000000" strokeWidth="1" onClick={() => handleFaceClick('top')} className="hover:opacity-80 transition-opacity" />
-           <polygon points="0,100 100,100 70,70 30,70" fill={getFaceColor('bottom')} stroke="#000000" strokeWidth="1" onClick={() => handleFaceClick('bottom')} className="hover:opacity-80 transition-opacity" />
-           <polygon points="0,0 0,100 30,70 30,30" fill={getFaceColor('left')} stroke="#000000" strokeWidth="1" onClick={() => handleFaceClick('left')} className="hover:opacity-80 transition-opacity" />
-           <polygon points="100,0 100,100 70,70 70,30" fill={getFaceColor('right')} stroke="#000000" strokeWidth="1" onClick={() => handleFaceClick('right')} className="hover:opacity-80 transition-opacity" />
-           <rect x="30" y="30" width="40" height="40" fill={getFaceColor('center')} stroke="#000000" strokeWidth="1" onClick={() => handleFaceClick('center')} className="hover:opacity-80 transition-opacity" />
-        </svg>
-      </div>
-      <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[8px] border-t-black mt-0.5"></div>
-    </div>
-  );
-};
-
-const Odontogram = ({ data, onSave, readOnly = false, onChange }) => {
-  const [teethState, setTeethState] = useState(data || {});
-  const [activeTool, setActiveTool] = useState(readOnly ? 'select' : 'select');
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [quad, setQuad] = useState('Q1');
-
-  const handleToothUpdate = (toothId, face, toolId) => {
-    if (readOnly) return;
-    const newTeethState = { ...teethState };
-    if (!newTeethState[toothId]) newTeethState[toothId] = {};
-    if (toolId === null) {
-      delete newTeethState[toothId][face];
-    } else {
-        newTeethState[toothId][face] = toolId;
-    }
-    setTeethState(newTeethState);
-    if (onChange) onChange(newTeethState);
-  };
-
-  const handleSave = () => {
-    onSave(teethState);
-  };
-
-  const renderRow = (teethIds) => (
-    <div className="odontogram-row flex justify-start bg-slate-900 p-3 rounded-lg border border-slate-700 mb-2 shadow-md overflow-x-auto overflow-y-hidden">
-      <div className="inline-flex" style={{ transform: `scale(${zoom})`, transformOrigin: 'left top' }}>
-        {teethIds.map(id => (
-          <Tooth key={id} id={id} data={teethState[id]} activeTool={activeTool} onUpdate={handleToothUpdate} />
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-4 animate-in fade-in duration-500">
-      {!readOnly && (
-        <div className="md:sticky md:top-0 md:z-10">
-          <div className="bg-slate-800 text-white md:p-4 p-3 rounded-lg shadow-lg w-full">
-            <div className="flex items-center justify-between md:justify-start md:gap-4">
-              <span className="text-sm md:text-base font-bold uppercase tracking-wider text-slate-200">Herramientas</span>
-              <button onClick={() => setToolsOpen(v => !v)} className="md:hidden bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-sm">
-                {toolsOpen ? 'Cerrar' : 'Mostrar'}
-              </button>
-              <div className="hidden md:flex items-center gap-3 flex-wrap ml-4">
-                {Object.values(TOOLS).map(tool => (
-                  <button
-                    key={tool.id}
-                    onClick={() => setActiveTool(tool.id)}
-                    className={`inline-flex items-center space-x-2 px-4 py-2 rounded-full text-sm md:text-base font-bold transition-all ${
-                      activeTool === tool.id ? 'bg-white text-slate-900 shadow-md' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                    }`}
-                  >
-                    <div className="w-4 h-4 md:w-5 md:h-5 rounded-full border border-slate-500" style={{ backgroundColor: tool.color }}></div>
-                    <span>{tool.label}</span>
-                  </button>
-                ))}
-                <div className="flex-grow"></div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-300">Zoom</span>
-                  <button onClick={() => setZoom(z => Math.max(0.75, +(z - 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs">-</button>
-                  <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded text-xs">+</button>
-                </div>
-                <button onClick={handleSave} className="bg-teal-500 hover:bg-teal-600 text-white px-5 py-2 rounded-full text-sm md:text-base font-bold inline-flex items-center shadow-lg transition-colors">
-                  <Save className="w-5 h-5 mr-2" />
-                  Guardar Cambios
-                </button>
-              </div>
-            </div>
-            <div className={`${toolsOpen ? 'block' : 'hidden'} md:hidden mt-3`}>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.values(TOOLS).map(tool => (
-                  <button
-                    key={tool.id}
-                    onClick={() => setActiveTool(tool.id)}
-                    className={`inline-flex items-center space-x-2 px-3 py-2 rounded-full text-sm font-bold transition-all ${
-                      activeTool === tool.id ? 'bg-white text-slate-900 shadow-md' : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                    }`}
-                  >
-                    <div className="w-4 h-4 rounded-full border border-slate-500" style={{ backgroundColor: tool.color }}></div>
-                    <span className="truncate">{tool.label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-xs text-slate-300">Zoom</span>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setZoom(z => Math.max(0.75, +(z - 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-xs">-</button>
-                  <button onClick={() => setZoom(z => Math.min(1.6, +(z + 0.1).toFixed(2)))} className="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded text-xs">+</button>
-                </div>
-              </div>
-              <button onClick={handleSave} className="mt-3 w-full bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 rounded-full text-sm font-bold inline-flex items-center justify-center shadow-lg transition-colors">
-                <Save className="w-4 h-4 mr-2" />
-                Guardar Cambios
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className={`p-4 rounded-xl border border-slate-200 ${readOnly ? 'bg-gray-50 opacity-90' : 'bg-slate-50'}`}>
-        <h3 className="text-center font-bold text-slate-700 mb-2 uppercase tracking-wide">Dentición Adulta</h3>
-        <div className="md:hidden">
-          <div className="flex items-center justify-center gap-2 mb-3">
-            {['Q1','Q2','Q3','Q4'].map(q => (
-              <button key={q} onClick={() => setQuad(q)} className={`px-3 py-1.5 rounded-full text-xs font-bold border ${quad === q ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-slate-700 border-slate-300'}`}>{q}</button>
-            ))}
-          </div>
-          <div className="text-center text-xs text-slate-400 mb-1">
-            {quad === 'Q1' && 'Superior Derecha (Q1)'}
-            {quad === 'Q2' && 'Superior Izquierda (Q2)'}
-            {quad === 'Q3' && 'Inferior Izquierda (Q3)'}
-            {quad === 'Q4' && 'Inferior Derecha (Q4)'}
-          </div>
-          {renderRow(quad === 'Q1' ? ADULT_TEETH_UPPER.slice(0,8) : quad === 'Q2' ? ADULT_TEETH_UPPER.slice(8) : quad === 'Q3' ? ADULT_TEETH_LOWER.slice(8) : ADULT_TEETH_LOWER.slice(0,8))}
-        </div>
-        <div className="hidden md:grid md:grid-cols-1 md:gap-4">
-            <div>
-               <p className="text-center text-xs text-slate-400 mb-1">Superior Derecha (Q1) - Superior Izquierda (Q2)</p>
-               {renderRow(ADULT_TEETH_UPPER)}
-            </div>
-            <div>
-                <p className="text-center text-xs text-slate-400 mb-1">Inferior Derecha (Q4) - Inferior Izquierda (Q3)</p>
-                {renderRow(ADULT_TEETH_LOWER)}
-            </div>
-        </div>
-
-        <h3 className="text-center font-bold text-slate-700 mt-6 mb-2 uppercase tracking-wide">Dentición Infantil</h3>
-        <div className="flex flex-col items-center">
-             <div className="w-full max-w-4xl">
-               {renderRow(CHILD_TEETH_UPPER)}
-               {renderRow(CHILD_TEETH_LOWER)}
-             </div>
-        </div>
-      </div>
-      
-      {!readOnly && (
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex items-start space-x-3 text-sm text-blue-800">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-blue-500" />
-            <div>
-                <p className="font-semibold">Instrucciones:</p>
-                <p>Seleccione una herramienta del panel superior y haga clic en la cara del diente correspondiente para marcarla.</p>
-            </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 export default function App() {
   const [token, setToken] = useState(null);
   const [view, setView] = useState('login'); 
   const [patients, setPatients] = useState([]);
+  const [deletedPatients, setDeletedPatients] = useState([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashError, setTrashError] = useState(null);
   const sortedPatients = useMemo(() => {
     const norm = (s) => String(s || '').trim().toLowerCase();
     return (patients || []).slice().sort((a, b) => {
@@ -443,6 +157,13 @@ export default function App() {
   const [services, setServices] = useState([]);
   const [serviceForm, setServiceForm] = useState({ name: '', price: '' });
   const [editingServiceId, setEditingServiceId] = useState(null);
+  const daysUntilPurge = (d) => {
+    if (!d) return 7;
+    const ms = Date.now() - new Date(d).getTime();
+    const passed = Math.ceil(ms / 86400000);
+    const left = 7 - passed;
+    return left > 0 ? left : 0;
+  };
   const [serviceEditForm, setServiceEditForm] = useState({ name: '', price: '' });
   const [serviceQuery, setServiceQuery] = useState('');
   const filteredServices = useMemo(() => {
@@ -529,6 +250,25 @@ export default function App() {
       }
       alert(`Servicios creados: ${created} • Actualizados: ${updated}`);
     } catch (e) { alert(e?.message || 'Error cargando servicios por defecto'); }
+  };
+
+  const extractTreatmentsFromText = (raw) => {
+    const text = String(raw || '');
+    const lines = text.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    const out = [];
+    for (const l of lines) {
+      const m = l.match(/(\d{2})[/-](\d{2})[/-](\d{2,4})\s+(.+?)$/);
+      if (m) {
+        const date = `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2]}-${m[1]}`;
+        const tail = m[4];
+        const numMatch = tail.match(/(\d+[.,]?\d*)\s*$/);
+        const amount = numMatch ? Number(String(numMatch[1]).replace(',', '.')) : 0;
+        const lower = tail.toLowerCase();
+        const isPayment = /pago|abono|cancel/.test(lower);
+        out.push({ id: Date.now().toString() + '_' + Math.random().toString(36).slice(2), type: isPayment ? 'payment' : 'visit', date, description: tail.replace(/\s*(\d+[.,]?\d*)\s*$/, '').trim(), cost: isPayment ? 0 : amount, payment: isPayment ? amount : 0 });
+      }
+    }
+    return out;
   };
   
   const [calendarView, setCalendarView] = useState('month');
@@ -740,12 +480,12 @@ export default function App() {
     const dni = String(formData.dni || '').trim();
     const nombres = String(formData.nombres || '').trim().toLowerCase();
     const apellidos = String(formData.apellidos || '').trim().toLowerCase();
-    if (!dni || dni.length !== 8) { alert('DNI inválido, debe tener 8 dígitos'); return; }
+    if (dni && dni.length !== 8) { alert('DNI inválido, debe tener 8 dígitos'); return; }
     const exists = (patients || []).some(p => {
       const pdni = String(p.dni || '').trim();
       const pn = String(p.nombres || '').trim().toLowerCase();
       const pa = String(p.apellidos || '').trim().toLowerCase();
-      return (pdni && pdni === dni) || (pn === nombres && pa === apellidos);
+      return (dni && pdni && pdni === dni) || (pn === nombres && pa === apellidos);
     });
     if (exists) { alert('Ya existe un paciente con este DNI o con los mismos nombres y apellidos'); return; }
     setCreatingPatient(true);
@@ -771,12 +511,13 @@ export default function App() {
   const handleDeletePatient = async (pid) => {
       setConfirmModal({
           isOpen: true,
-          message: "¿Estás seguro de eliminar permanentemente el historial de este paciente? Esta acción no se puede deshacer.",
+          message: "Este paciente se enviará a la Papelera por 7 días. ¿Confirmas?",
           onConfirm: async () => {
             try {
               await deletePatient(token, pid);
               setPatients(prev => (prev || []).filter(p => p.id !== pid));
               if(activePatient?.id === pid) { setView('dashboard'); setActivePatient(null); setFormData(initialFormState); }
+              alert('Paciente enviado a la Papelera. Podrás recuperarlo dentro de 7 días.');
             } catch (e) {
               alert("Error eliminando paciente: " + (e?.message || e));
             }
@@ -819,6 +560,96 @@ export default function App() {
       reader.onerror = reject;
       reader.readAsDataURL(file);
   });
+
+  const preprocessImageForOCR = async (dataUrl) => {
+      return new Promise((resolve) => {
+        try {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const ratio = img.width / img.height;
+            const maxW = Math.max(1200, img.width);
+            const w = Math.min(maxW, img.width * 1.5);
+            const h = Math.round(w / ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(img, 0, 0, w, h);
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const d = imgData.data;
+            const contrast = 1.25; // aumentar contraste
+            const brightness = 8;   // leve aumento brillo
+            for (let i = 0; i < d.length; i += 4) {
+              const r = d[i], g = d[i+1], b = d[i+2];
+              // escala de grises (luma)
+              let y = 0.2126*r + 0.7152*g + 0.0722*b;
+              // ajustar contraste y brillo
+              y = (y - 128) * contrast + 128 + brightness;
+              if (y < 0) y = 0; if (y > 255) y = 255;
+              d[i] = d[i+1] = d[i+2] = y;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          };
+          img.onerror = () => resolve(dataUrl);
+          img.src = dataUrl;
+        } catch {
+          resolve(dataUrl);
+        }
+      });
+  };
+
+  const compressImageForAI = (dataUrl, maxWidth = 1280, quality = 0.6) => {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const ratio = img.width / img.height;
+          const w = Math.min(maxWidth, img.width);
+          const h = Math.round(w / ratio);
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      } catch {
+        resolve(dataUrl);
+      }
+    });
+  };
+
+  const recognizeImageText = async (dataUrl) => {
+      try {
+        const processed = await preprocessImageForOCR(dataUrl);
+        const res = await Tesseract.recognize(processed, 'spa+eng', {
+          langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+          tessedit_pageseg_mode: '6',
+          preserve_interword_spaces: '1',
+          tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÁÉÍÓÚÜÑáéíóúüñ0123456789 @.-:/,+()\n'
+        });
+        const text = res?.data?.text || '';
+        // Si el texto es muy corto, intentar sin preprocesamiento
+        if ((text || '').trim().length < 40) {
+          const fallback = await Tesseract.recognize(dataUrl, 'spa+eng', {
+            langPath: 'https://tessdata.projectnaptha.com/4.0.0',
+            tessedit_pageseg_mode: '4',
+            preserve_interword_spaces: '1'
+          });
+          return fallback?.data?.text || text;
+        }
+        return text;
+      } catch {
+        return '';
+      }
+  };
 
   const handleProgressFilesSelected = async (e) => {
       const files = Array.from(e.target.files || []);
@@ -884,8 +715,13 @@ export default function App() {
   };
 
   const extractDataFromText = (raw) => {
-    const text = (raw || '').replace(/\r/g, '');
-    const pick = (re) => { const m = text.match(re); return m && m[1] ? String(m[1]).trim() : ''; };
+    const cleanText = (s) => String(s || '')
+      .replace(/\r/g, '')
+      .replace(/[=—_–•<>~()]{1,}/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\t+/g, ' ');
+    const text = cleanText(raw);
+    const pick = (re) => { const m = text.match(re); return m && m[1] ? cleanText(m[1]).trim() : ''; };
     let nombres = pick(/Nombres\s*[-:]?\s*(.+)/i);
     let apellidos = pick(/Apellidos\s*[-:]?\s*(.+)/i);
     const lines = text.split(/\n+/).map(s => s.trim()).filter(s => s.length);
@@ -910,19 +746,19 @@ export default function App() {
         else if (parts.length === 2) { nombres = parts[0]; apellidos = parts[1]; }
       }
     }
-    const dni = pick(/DNI\s*[-:]?\s*(\d{8})/i);
+    const dni = pick(/DNI\s*[-:]?\s*(\d{8})/i) || pick(/Documento\s*\(DNI\)\s*[-:]?\s*(\d{8})/i);
     const sexoRaw = pick(/Sexo\s*[-:]?\s*(Masculino|Femenino|M|F)/i);
     const sexo = sexoRaw ? (sexoRaw.toUpperCase().startsWith('M') ? 'M' : 'F') : 'M';
-    const fechaNacimiento = normalizeDate(pick(/Fecha\s*Nacimiento\s*[-:]?\s*([\d/-]+)/i) || pick(/F\.?\s*Nac\.?\s*[-:]?\s*([\d/-]+)/i));
+    const fechaNacimiento = normalizeDate(pick(/Fecha\s*Nacimiento\s*[-:]?\s*([\d/-]+)/i) || pick(/F\.?\s*Nac\.?\s*[-:]?\s*([\d/-]+)/i) || pick(/Nacimiento\s*[-:]?\s*([\d/-]+)/i));
     const edad = fechaNacimiento ? calculateAge(fechaNacimiento) : pick(/Edad\s*[-:]?\s*(\d{1,3})/i);
-    const lugarNacimiento = pick(/Lugar\s*Nacimiento\s*[-:]?\s*(.+)/i);
-    const lugarProcedencia = pick(/Lugar\s*Procedencia\s*[-:]?\s*(.+)/i);
-    const domicilio = pick(/Domicilio\s*[-:]?\s*(.+)/i);
+    const lugarNacimiento = pick(/Lugar\s*Nacimiento\s*[-:]?\s*(.+)/i) || pick(/Lugar\s*de\s*Nacimiento\s*[-:]?\s*(.+)/i);
+    const lugarProcedencia = pick(/Lugar\s*Procedencia\s*[-:]?\s*(.+)/i) || pick(/Procedencia\s*[-:]?\s*(.+)/i);
+    const domicilio = pick(/Domicilio\s*[-:]?\s*(.+)/i) || pick(/Direcci[oó]n\s*[-:]?\s*(.+)/i);
     const telefono = (pick(/Tel[eé]fono\s*[-:]?\s*([\d\s+-]+)/i) || '').replace(/[^\d]/g, '');
     const email = pick(/Email\s*[-:]?\s*([^\s]+)/i);
     const estadoCivil = pick(/Estado\s*Civil\s*[-:]?\s*(Soltero|Casado|Divorciado|Viudo)/i);
     const gradoInstruccion = pick(/Grado\s*Instrucci[oó]n\s*[-:]?\s*(.+)/i);
-    const profesion = pick(/Profes[ií]?[oó]n\s*[-:]?\s*(.+)/i);
+    const profesion = pick(/Profes[ií]?[oó]n\s*[-:]?\s*(.+)/i) || pick(/Profesional\s*[-:]?\s*(.+)/i);
     const ocupacion = pick(/Ocupaci[oó]n\s*[-:]?\s*(.+)/i);
     const centroEstudios = pick(/Centro\s*de\s*Estudios\s*[-:]?\s*(.+)/i);
     const direccionCentroEstudios = pick(/Direcci[oó]n\s*del\s*Centro\s*[-:]?\s*(.+)/i);
@@ -1011,11 +847,25 @@ export default function App() {
     if (!uploadImages.length) { alert('Suba al menos 1 foto'); return; }
     setIsAnalyzing(true);
     try {
-      const imgs = uploadImages.map(i => ({ url: i.url, name: i.name }));
+      const imgs = await Promise.all(uploadImages.map(async (i) => ({ url: await compressImageForAI(i.url), name: i.name })));
       const ai = await extractPatientFromImages(token, imgs);
-      const general = ai.general || {};
-      const exam = ai.exam || {};
-      const treatments = Array.isArray(ai.treatments) ? ai.treatments : [];
+      let general = ai.general || {};
+      let exam = ai.exam || {};
+      let treatments = Array.isArray(ai.treatments) ? ai.treatments : [];
+      const keysToCheck = ['domicilio','telefono','email','lugarNacimiento','lugarProcedencia','emergenciaNombre','emergenciaTelefono'];
+      const needsOCR = keysToCheck.some(k => !String(general[k] || '').trim()) || treatments.length === 0;
+      if (needsOCR) {
+        const texts = [];
+        for (const img of uploadImages) { texts.push(await recognizeImageText(img.url)); }
+        const combined = texts.join('\n\n');
+        const parsed = extractDataFromText(combined);
+        const fallbackGeneral = parsed.general || {};
+        const fallbackExam = parsed.exam || {};
+        for (const k of keysToCheck) { if (!String(general[k] || '').trim() && String(fallbackGeneral[k] || '').trim()) general[k] = fallbackGeneral[k]; }
+        const mergeObj = (a,b) => { const out = { ...a }; Object.keys(b || {}).forEach(k => { const v = b[k]; if (v && typeof v === 'object' && !Array.isArray(v)) { out[k] = mergeObj(a?.[k] || {}, v); } else { if (!String(a?.[k] || '').trim() && String(v || '').trim()) out[k] = v; } }); return out; };
+        exam = mergeObj(exam, fallbackExam);
+        if (!treatments.length) { treatments = extractTreatmentsFromText(combined); }
+      }
       const payload = {
         ...initialFormState,
         ...general,
@@ -1024,7 +874,7 @@ export default function App() {
         odontogram_initial: {},
         progress_records: [],
         treatments,
-        general_attachments: uploadImages
+        general_attachments: uploadImages.map(img => ({ ...img, origin: 'initial' }))
       };
       const created = await createPatient(token, payload);
       setPatients(prev => [created, ...prev]);
@@ -1038,8 +888,8 @@ export default function App() {
       try {
         const results = [];
         for (const img of uploadImages) {
-          const r = await Tesseract.recognize(img.url, 'spa', { langPath: 'https://tessdata.projectnaptha.com/4.0.0' });
-          results.push(r?.data?.text || '');
+          const text = await recognizeImageText(img.url);
+          results.push(text);
         }
         const combined = results.join('\n\n');
         const { general, exam } = extractDataFromText(combined);
@@ -1051,7 +901,7 @@ export default function App() {
           odontogram_initial: {},
           progress_records: [],
           treatments: [],
-          general_attachments: uploadImages
+          general_attachments: uploadImages.map(img => ({ ...img, origin: 'initial' }))
         };
         const created = await createPatient(token, payload);
         setPatients(prev => [created, ...prev]);
@@ -1489,6 +1339,32 @@ export default function App() {
     XLSX.writeFile(wb, 'historial_avances.xlsx');
   };
 
+  const exportGeneralExcel = () => {
+    const rows = [
+      { Campo: 'Nombres', Valor: formData.nombres || '' },
+      { Campo: 'Apellidos', Valor: formData.apellidos || '' },
+      { Campo: 'Sexo', Valor: formData.sexo || '' },
+      { Campo: 'DNI', Valor: formData.dni || '' },
+      { Campo: 'Fecha Nacimiento', Valor: formData.fechaNacimiento || '' },
+      { Campo: 'Edad', Valor: formData.edad || '' },
+      { Campo: 'Domicilio', Valor: formData.domicilio || '' },
+      { Campo: 'Email', Valor: formData.email || '' },
+      { Campo: 'Teléfono', Valor: formData.telefono || '' },
+      { Campo: 'Estado Civil', Valor: formData.estadoCivil || '' },
+      { Campo: 'Grado Instrucción', Valor: formData.gradoInstruccion || '' },
+      { Campo: 'Religión', Valor: formData.religion || '' },
+      { Campo: 'Profesión', Valor: formData.profesion || '' },
+      { Campo: 'Ocupación', Valor: formData.ocupacion || '' },
+      { Campo: 'Centro de Estudios', Valor: formData.centroEstudios || '' },
+      { Campo: 'Dirección del Centro', Valor: formData.direccionCentroEstudios || '' },
+      { Campo: 'Médico Tratante', Valor: formData.medicoTratante || '' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Datos Generales');
+    XLSX.writeFile(wb, 'datos_generales.xlsx');
+  };
+
   const [emailModal, setEmailModal] = useState({ open: false, to: '', context: null });
 
   const openSendServicesEmail = () => setEmailModal({ open: true, to: '', context: 'services' });
@@ -1564,7 +1440,12 @@ export default function App() {
   }} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+    <MainLayout 
+      activeView={view} 
+      onViewChange={setView} 
+      onLogout={() => { setToken(null); localStorage.removeItem('authToken'); setView('login'); setPatients([]); setActivePatient(null); }}
+      userEmail={LOGIN_EMAIL}
+    >
       <ConfirmationModal 
         isOpen={confirmModal.isOpen} 
         message={confirmModal.message} 
@@ -1583,83 +1464,129 @@ export default function App() {
           </div>
         </div>
       )}
-
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-center md:justify-between">
-            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => { setView('dashboard'); setFormData(initialFormState); }}>
-                <div className="bg-teal-600 p-1.5 rounded-lg">
-                    <Activity className="text-white w-6 h-6" />
-                </div>
-                <h1 className="text-xl font-bold text-slate-800">OdontoKaren</h1>
-            </div>
-            <div className="hidden md:flex items-center space-x-4">
-                <button onClick={() => setView('services')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-slate-900 text-white hover:bg-slate-800">
-                  <DollarSign className="w-4 h-4" /> Servicios
-                </button>
-                <button onClick={() => setView('reminders')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-indigo-700 text-white hover:bg-indigo-600 whitespace-nowrap">
-                  <Clock className="w-4 h-4" /> Recordatorios
-                </button>
-                <button onClick={() => setView('reminders-config')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-teal-700 text-white hover:bg-teal-600 whitespace-nowrap">
-                  <History className="w-4 h-4" /> Config. Recordatorios
-                </button>
-                <button onClick={() => setView('agenda')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold bg-teal-700 text-white hover:bg-teal-600">
-                  <Calendar className="w-4 h-4" /> Agenda
-                </button>
-                <span className="text-sm text-slate-500 hidden md:block">Dra. Karen</span>
-                <button 
-                  onClick={() => { setToken(null); localStorage.removeItem('authToken'); setView('login'); setPatients([]); setActivePatient(null); }}
-                  className="hidden md:inline-flex p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-            </div>
-        </div>
-      </header>
-
-      <main className="flex-grow max-w-7xl mx-auto w-full p-4 md:p-6">
         {view === 'dashboard' && (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-500 text-sm font-medium mb-1">Total Pacientes</p>
+                            <h3 className="text-3xl font-bold text-slate-800">{patients.length}</h3>
+                        </div>
+                        <div className="w-12 h-12 bg-teal-50 dark:bg-teal-900/30 rounded-full flex items-center justify-center text-teal-600 dark:text-white">
+                          <User className="w-6 h-6" />
+                        </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-500 text-sm font-medium mb-1">Citas Hoy</p>
+                            <h3 className="text-3xl font-bold text-slate-800">
+                                {appointments.filter(a => a.startAt.startsWith(new Date().toISOString().split('T')[0])).length}
+                            </h3>
+                        </div>
+                        <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/30 rounded-full flex items-center justify-center text-indigo-600 dark:text-white">
+                          <Calendar className="w-6 h-6" />
+                        </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                        <div>
+                            <p className="text-slate-500 text-sm font-medium mb-1">Recordatorios Pendientes</p>
+                            <h3 className="text-3xl font-bold text-slate-800">
+                                {reminders.filter(r => r.status === 'pending').length}
+                            </h3>
+                        </div>
+                        <div className="w-12 h-12 bg-amber-50 dark:bg-amber-900/20 rounded-full flex items-center justify-center text-amber-600 dark:text-white">
+                          <AlertCircle className="w-6 h-6" />
+                        </div>
+                    </div>
+                </div>
+
                 {patientsError && (
                   <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex items-center">
                     <AlertTriangle className="w-5 h-5 mr-2" />
                     <span className="text-sm">{patientsError}</span>
                   </div>
                 )}
+
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-slate-800">Pacientes</h2>
-                        <p className="text-slate-500">Gestiona los historiales clínicos de tu consultorio.</p>
+                        <h2 className="text-xl font-bold text-slate-800">Listado de Pacientes</h2>
                     </div>
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                  <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-sm flex flex-grow md:flex-none">
-                    <div className="relative flex-grow md:w-64">
-                      <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
-                      <input type="text" placeholder="Buscar por nombre o DNI..." className="w-full pl-9 pr-4 py-2 text-sm focus:outline-none rounded-md" />
+                    <div className="flex items-center gap-3 w-full md:w-auto md:overflow-visible pb-2 md:pb-0 flex-wrap">
+                      <div className="bg-white p-2 rounded-xl border border-slate-200 shadow-sm flex flex-grow md:flex-none focus-within:ring-2 focus-within:ring-teal-500 transition-all min-w-[200px]">
+                        <div className="relative flex-grow md:w-64">
+                          <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+                          <input type="text" placeholder="Buscar por nombre o DNI..." className="w-full pl-9 pr-4 py-2 text-sm focus:outline-none bg-transparent" />
+                        </div>
+                      </div>
+                      <button onClick={exportPatientsExcel} className="hidden md:inline-flex bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors">Excel</button>
+                      <button onClick={exportPatientsPDF} className="hidden md:inline-flex bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors">PDF</button>
+                      <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap shadow-sm shadow-teal-200 transition-all flex items-center">
+                        <Plus className="w-4 h-4 md:mr-2" />
+                        <span className="hidden md:inline">Nuevo Paciente</span>
+                        <span className="md:hidden">Nuevo</span>
+                      </button>
+                      <button onClick={async () => { setView('trash'); setTrashLoading(true); try { const d = await listDeletedPatients(token); setDeletedPatients(d); setTrashError(null); } catch (e) { setTrashError(e?.message || 'Error cargando papelera'); } finally { setTrashLoading(false); } }} className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors flex items-center">
+                        <Trash2 className="w-4 h-4 md:mr-2" />
+                        <span className="hidden md:inline">Papelera</span>
+                        <span className="md:hidden">Papelera</span>
+                      </button>
+                      <button onClick={goToUpload} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold whitespace-nowrap shadow-sm transition-all flex items-center">
+                        <Upload className="w-4 h-4 md:mr-2"/> 
+                        <span className="hidden md:inline">Subir Foto</span>
+                        <span className="md:hidden">Subir</span>
+                      </button>
                     </div>
-                  </div>
-                  <button onClick={exportPatientsExcel} className="hidden md:inline-flex bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar Excel</button>
-                  <button onClick={exportPatientsPDF} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold whitespace-nowrap">Exportar PDF</button>
-                  <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap">Crear nuevo paciente</button>
-                  <button onClick={goToUpload} className="hidden md:inline-flex bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded text-sm font-bold whitespace-nowrap"><Upload className="w-4 h-4 mr-2"/> Subir por foto</button>
-                  <button onClick={goToUpload} className="md:hidden inline-flex bg-teal-600 hover:bg-teal-700 text-white p-2 rounded-lg shadow-sm"><Upload className="w-5 h-5"/></button>
-                  
-                </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6">
-                    <div className="grid gap-4">
-                        {sortedPatients.map(patient => (
-                            <div key={patient.id} onClick={() => { setActivePatient(patient); setFormData(patient); setView('patient-detail'); setActiveTab('general'); }} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-teal-300 transition-all cursor-pointer group flex justify-between items-center">
-                                <div className="flex items-center space-x-4">
-                                    <div className="w-12 h-12 bg-teal-50 text-teal-700 rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0">{patient.nombres?.[0]}{patient.apellidos?.[0]}</div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-800 group-hover:text-teal-700 transition-colors">{patient.apellidos}, {patient.nombres}</h3>
-                                        <div className="flex flex-wrap gap-2 mt-1"><span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full border border-slate-200">DNI: {patient.dni || '---'}</span><span className="text-xs text-slate-500 flex items-center"><Phone className="w-3 h-3 mr-1" />{patient.telefono || 'Sin teléfono'}</span></div>
-                                    </div>
-                                </div>
-                                <ChevronRight className="text-slate-300 group-hover:text-teal-500" />
-                            </div>
-                        ))}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm text-left">
+                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                                <tr>
+                                    <th className="px-4 md:px-6 py-4 font-semibold">Paciente</th>
+                                    <th className="hidden md:table-cell px-6 py-4 font-semibold">DNI</th>
+                                    <th className="hidden md:table-cell px-6 py-4 font-semibold">Contacto</th>
+                                    <th className="px-4 md:px-6 py-4 font-semibold text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {sortedPatients.map(patient => (
+                                    <tr key={patient.id} onClick={() => { setActivePatient(patient); setFormData(patient); setView('patient-detail'); setActiveTab('general'); }} className="hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors group">
+                                        <td className="px-4 md:px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 bg-teal-50 text-teal-700 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">
+                                                    {patient.nombres?.[0]}{patient.apellidos?.[0]}
+                                                </div>
+                                                <div>
+                                                    <div className="font-bold text-slate-800 group-hover:text-teal-700 transition-colors">{patient.apellidos}, {patient.nombres}</div>
+                                                    <div className="text-xs text-slate-500 block md:hidden mt-0.5">DNI: {patient.dni || '---'}</div>
+                                                    <div className="text-xs text-slate-500 block md:hidden mt-0.5">{patient.telefono || '---'}</div>
+                                                    <div className="text-xs text-slate-500 hidden md:block">{patient.email || 'Sin email'}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="hidden md:table-cell px-6 py-4 font-mono text-slate-600">{patient.dni || '---'}</td>
+                                        <td className="hidden md:table-cell px-6 py-4 text-slate-600">
+                                            <div className="flex items-center gap-2">
+                                                <Phone className="w-3 h-3 text-slate-400" />
+                                                {patient.telefono || '---'}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 md:px-6 py-4 text-right">
+                                            <ChevronRight className="w-5 h-5 text-slate-300 inline-block group-hover:text-teal-500 transition-colors" />
+                                        </td>
+                                    </tr>
+                                ))}
+                                {sortedPatients.length === 0 && (
+                                    <tr>
+                                        <td colSpan="4" className="px-6 py-12 text-center text-slate-400">
+                                            No se encontraron pacientes
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -1701,7 +1628,7 @@ export default function App() {
                     <button type="submit" className="w-full bg-teal-600 hover:bg-teal-700 text-white px-4 py-2.5 rounded text-sm font-bold">Agregar Servicio</button>
                   </div>
                 </form>
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                   <table className="min-w-full border border-slate-200 rounded-lg overflow-hidden">
                     <thead className="bg-slate-50">
                       <tr>
@@ -1760,6 +1687,53 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile List View */}
+                <div className="md:hidden space-y-3">
+                  {filteredServices.map(s => {
+                    const isEditing = editingServiceId === (s.id || slug(s.name));
+                    return (
+                      <div key={s.id || slug(s.name)} className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Nombre</label>
+                              <input className="w-full p-2 border rounded text-sm" value={serviceEditForm.name} onChange={e => setServiceEditForm({ ...serviceEditForm, name: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Precio</label>
+                              <input type="number" step="0.01" className="w-full p-2 border rounded text-sm" value={serviceEditForm.price} onChange={e => setServiceEditForm({ ...serviceEditForm, price: e.target.value })} />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                              <button onClick={handleCancelEditService} className="px-3 py-1.5 text-slate-600 bg-slate-100 rounded text-sm font-medium">Cancelar</button>
+                              <button onClick={handleSaveEditService} className="px-3 py-1.5 text-white bg-teal-600 rounded text-sm font-medium">Guardar</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="font-bold text-slate-800 text-sm mb-1">{s.name}</div>
+                              <div className="font-extrabold text-teal-600 text-lg">S/ {Number(s.price).toFixed(2)}</div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleStartEditService(s)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => handleDeleteService(s.id || slug(s.name))} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!filteredServices.length && (
+                     <div className="text-center py-8 text-slate-500 text-sm bg-slate-50 rounded-lg border border-slate-200 border-dashed">
+                       Sin resultados para "{serviceQuery}"
+                     </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1821,28 +1795,28 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                
-                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
-                  <button onClick={() => setCalendarDate(new Date())} className="px-3 py-1 text-sm text-slate-700 hover:bg-slate-50">Hoy</button>
-                  <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? -30 : calendarView==='week'? -7 : -1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">←</button>
-                  <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? 30 : calendarView==='week'? 7 : 1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">→</button>
+                <div className="flex flex-col md:flex-row items-start md:items-center gap-2 mb-4">
+                  <div className="w-full md:w-auto pb-2 md:pb-0 flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden flex-shrink-0">
+                      <button onClick={() => setCalendarDate(new Date())} className="px-3 py-1 text-sm text-slate-700 hover:bg-slate-50">Hoy</button>
+                      <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? -30 : calendarView==='week'? -7 : -1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">←</button>
+                      <button onClick={() => setCalendarDate(addDays(calendarDate, calendarView==='month'? 30 : calendarView==='week'? 7 : 1))} className="px-3 py-1 text-sm border-l border-slate-200 text-slate-700 hover:bg-slate-50">→</button>
+                    </div>
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden flex-shrink-0">
+                      <button onClick={() => setCalendarStatusFilter('all')} className={`px-3 py-1 text-sm ${calendarStatusFilter==='all'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Todas</button>
+                      <button onClick={() => setCalendarStatusFilter('scheduled')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='scheduled'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Programadas</button>
+                      <button onClick={() => setCalendarStatusFilter('completed')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='completed'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Atendidas</button>
+                    </div>
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden md:ml-auto flex-shrink-0">
+                      <button onClick={() => setCalendarView('month')} className={`px-3 py-1 text-sm ${calendarView==='month'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Mes</button>
+                      <button onClick={() => setCalendarView('week')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='week'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Semana</button>
+                      <button onClick={() => setCalendarView('day')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='day'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Día</button>
+                    </div>
+                  </div>
+                  <div className="md:hidden w-full">
+                    <input type="month" value={`${calendarDate.getFullYear()}-${String(calendarDate.getMonth()+1).padStart(2,'0')}`} onChange={e => { const [y,m] = e.target.value.split('-'); setCalendarDate(new Date(Number(y), Number(m)-1, 1)); }} className="w-full p-2 border rounded text-sm" />
+                  </div>
                 </div>
-                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
-                  <button onClick={() => setCalendarStatusFilter('all')} className={`px-3 py-1 text-sm ${calendarStatusFilter==='all'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Todas</button>
-                  <button onClick={() => setCalendarStatusFilter('scheduled')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='scheduled'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Programadas</button>
-                  <button onClick={() => setCalendarStatusFilter('completed')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarStatusFilter==='completed'?'bg-teal-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Atendidas</button>
-                </div>
-                <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden ml-auto">
-                  <button onClick={() => setCalendarView('month')} className={`px-3 py-1 text-sm ${calendarView==='month'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Mes</button>
-                  <button onClick={() => setCalendarView('week')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='week'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Semana</button>
-                  <button onClick={() => setCalendarView('day')} className={`px-3 py-1 text-sm border-l border-slate-200 ${calendarView==='day'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Día</button>
-                </div>
-                <div className="md:hidden inline-flex items-center gap-2 ml-auto">
-                  <input type="month" value={`${calendarDate.getFullYear()}-${String(calendarDate.getMonth()+1).padStart(2,'0')}`} onChange={e => { const [y,m] = e.target.value.split('-'); setCalendarDate(new Date(Number(y), Number(m)-1, 1)); }} className="p-2 border rounded text-sm" />
-                </div>
-                
-              </div>
 
               
 
@@ -1862,7 +1836,7 @@ export default function App() {
                       <div key={i} className={`group relative border border-slate-200 rounded-lg p-2 md:min-h-[120px] min-h-[80px] bg-white cursor-pointer hover:bg-slate-50 ${other?'opacity-50':''} ${today?'ring-2 ring-teal-500':''}`} onClick={() => setSelectedDay(d)}>
                         <div className="flex items-center justify-between mb-2">
                           <div className={`${today?'bg-teal-600 text-white rounded-full w-6 h-6 flex items-center justify-center':'text-xs font-bold text-slate-700'}`}>{d.getDate()}</div>
-                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
                         </div>
                         <div className="space-y-1">
                           {(isMobile ? items.slice(0,3) : items.slice(0,3)).map(a => {
@@ -1897,7 +1871,7 @@ export default function App() {
                       <div key={i} className={`group relative border border-slate-200 rounded-lg p-2 md:min-h-[140px] min-h-[80px] bg-white cursor-pointer hover:bg-slate-50 ${today?'ring-2 ring-teal-500':''}`} onClick={() => setSelectedDay(d)}>
                         <div className="flex items-center justify-between mb-2">
                           <div className={`${today?'bg-teal-600 text-white rounded-full w-6 h-6 flex items-center justify-center':'text-xs font-bold text-slate-700'}`}>{d.getDate()}</div>
-                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
                         </div>
                         <div className="space-y-1">
                           {items.slice(0,3).map(a => {
@@ -2105,17 +2079,23 @@ export default function App() {
               </div>
             </div>
             <div className="mt-6 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <h3 className="hidden md:flex text-xl font-bold text-slate-800 items-center"><Clock className="w-5 h-5 mr-2 text-indigo-600" /> Recordatorios (Autopilot)</h3>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
                     <button onClick={() => setReminderStatusFilter('all')} className={`px-3 py-1 text-sm ${reminderStatusFilter==='all'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Todos</button>
                     <button onClick={() => setReminderStatusFilter('pending')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='pending'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Pendientes</button>
                     <button onClick={() => setReminderStatusFilter('sent')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='sent'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Enviados</button>
                     <button onClick={() => setReminderStatusFilter('failed')} className={`px-3 py-1 text-sm border-l border-slate-200 ${reminderStatusFilter==='failed'?'bg-indigo-600 text-white':'text-slate-700 hover:bg-slate-50'}`}>Fallidos</button>
                   </div>
-                  <button onClick={handleProcessReminders} className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold">Procesar vencidos</button>
-                  <button onClick={() => setManualReminderOpen(o => !o)} className="hidden md:inline-flex bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-bold">{manualReminderOpen ? 'Cerrar manual' : 'Crear manual'}</button>
+                  <button onClick={handleProcessReminders} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-sm font-bold flex items-center">
+                    <span className="hidden md:inline">Procesar vencidos</span>
+                    <span className="md:hidden">Procesar</span>
+                  </button>
+                  <button onClick={() => setManualReminderOpen(o => !o)} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded text-sm font-bold flex items-center">
+                    <span className="hidden md:inline">{manualReminderOpen ? 'Cerrar manual' : 'Crear manual'}</span>
+                    <span className="md:hidden">{manualReminderOpen ? 'Cerrar' : 'Manual'}</span>
+                  </button>
                   
                 </div>
               </div>
@@ -2326,34 +2306,83 @@ export default function App() {
         
 
         {view === 'new-patient' && (
-            <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in duration-300">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Plus className="w-6 h-6 mr-2 text-teal-600" /> Nuevo Ingreso</h2>
-                    <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+                    <h2 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center"><Plus className="w-6 h-6 mr-2 text-teal-600" /> Nuevo Ingreso</h2>
+                    <button onClick={() => setView('dashboard')} className="text-slate-600 dark:text-slate-300 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
                 </div>
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-xl">
-                    <form onSubmit={handleCreatePatient} className="space-y-3">
-                        <div className="relative">
-                          <input required placeholder="DNI (Obligatorio)" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-2.5 pr-10 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" maxLength={8} />
+                <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+                    <form onSubmit={handleCreatePatient} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="relative md:col-span-1">
+                          <input placeholder="DNI (Opcional)" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} className="w-full p-2.5 pr-10 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none" maxLength={8} />
                           <button type="button" onClick={() => searchDNI(formData.dni)} disabled={isSearchingDNI} className="absolute right-1 top-1 p-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-slate-400" title="Buscar en RENIEC">
                             {isSearchingDNI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                           </button>
                         </div>
-                        <input required placeholder="Nombres" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <input required placeholder="Apellidos" value={formData.apellidos} onChange={e => setFormData({...formData, apellidos: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <div className="grid grid-cols-2 gap-2">
-                            <input type="date" required value={formData.fechaNacimiento} onChange={handleDOBChange} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                            <select value={formData.sexo} onChange={e => setFormData({...formData, sexo: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
+                        <input required placeholder="Nombres" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none md:col-span-1" />
+                        <input required placeholder="Apellidos" value={formData.apellidos} onChange={e => setFormData({...formData, apellidos: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none md:col-span-1" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:col-span-3">
+                            <input type="date" required value={formData.fechaNacimiento} onChange={handleDOBChange} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none" />
+                            <select value={formData.sexo} onChange={e => setFormData({...formData, sexo: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none">
                                 <option value="M">Masculino</option>
                                 <option value="F">Femenino</option>
                             </select>
                         </div>
-                        <input placeholder="Teléfono" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 border-slate-300 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none" />
-                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!formData.whatsappConsent} onChange={e => setFormData({ ...formData, whatsappConsent: e.target.checked })} /><span>Consentimiento WhatsApp</span></label>
-                        <button type="submit" disabled={creatingPatient} className="w-full bg-slate-900 text-white py-3 rounded-lg font-medium hover:bg-slate-800 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">{creatingPatient ? 'Creando...' : 'Crear Expediente'}</button>
+                        <input placeholder="Teléfono" value={formData.telefono} onChange={e => setFormData({...formData, telefono: e.target.value})} className="w-full p-2.5 border rounded text-base md:text-sm bg-slate-50 dark:bg-slate-800 dark:text-white border-slate-300 dark:border-slate-700 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-teal-500 outline-none md:col-span-1" />
+                        <label className="flex items-center gap-2 text-sm md:col-span-2 text-slate-700 dark:text-slate-200"><input type="checkbox" checked={!!formData.whatsappConsent} onChange={e => setFormData({ ...formData, whatsappConsent: e.target.checked })} /><span>Consentimiento WhatsApp</span></label>
+                        <button type="submit" disabled={creatingPatient} className="w-full bg-slate-900 dark:bg-slate-800 text-white py-3 rounded-lg font-medium hover:bg-slate-800 dark:hover:bg-slate-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed md:col-span-3">{creatingPatient ? 'Creando...' : 'Crear Expediente'}</button>
                     </form>
                 </div>
             </div>
+        )}
+
+        {view === 'trash' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Trash2 className="w-6 h-6 mr-2 text-teal-600" /> Papelera de Pacientes</h2>
+              <button onClick={() => setView('dashboard')} className="text-slate-600 hover:text-slate-800 px-3 py-2 rounded">Volver</button>
+            </div>
+            {trashError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg flex items-center">
+                <AlertTriangle className="w-5 h-5 mr-2" />
+                <span className="text-sm">{trashError}</span>
+              </div>
+            )}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                    <tr>
+                      <th className="px-4 md:px-6 py-4 font-semibold">Paciente</th>
+                      <th className="hidden md:table-cell px-6 py-4 font-semibold">DNI</th>
+                      <th className="hidden md:table-cell px-6 py-4 font-semibold">Eliminado</th>
+                      <th className="px-4 md:px-6 py-4 font-semibold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {trashLoading && (
+                      <tr><td colSpan="4" className="px-6 py-6 text-center text-slate-400">Cargando...</td></tr>
+                    )}
+                    {!trashLoading && deletedPatients.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-100 cursor-pointer transition-colors">
+                        <td className="px-4 md:px-6 py-4">
+                          <div className="font-bold text-slate-800">{p.apellidos}, {p.nombres}</div>
+                        </td>
+                        <td className="hidden md:table-cell px-6 py-4 font-mono text-slate-600">{p.dni || '---'}</td>
+                        <td className="hidden md:table-cell px-6 py-4 text-slate-600">{p.deletedAt ? `${new Date(p.deletedAt).toLocaleDateString()} • Quedan ${daysUntilPurge(p.deletedAt)} ${daysUntilPurge(p.deletedAt) === 1 ? 'día' : 'días'}` : '—'}</td>
+                        <td className="px-4 md:px-6 py-4 text-right">
+                          <button onClick={async () => { try { await recoverPatient(token, p.id); setDeletedPatients(prev => prev.filter(x => x.id !== p.id)); const fresh = await listPatients(token); setPatients(fresh); alert('Paciente recuperado'); } catch (e) { alert(e?.message || 'Error recuperando paciente'); } }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Recuperar</button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!trashLoading && deletedPatients.length === 0 && (
+                      <tr><td colSpan="4" className="px-6 py-12 text-center text-slate-400">La papelera está vacía</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
 
         {view === 'patient-detail' && activePatient && (
@@ -2374,45 +2403,98 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                    <div className="md:col-span-3 lg:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex flex-row md:flex-col gap-2 sticky top-16 md:top-24 z-30 overflow-x-auto md:overflow-visible scrollbar-hide w-full">
+                    <div className="hidden md:flex md:col-span-12 bg-slate-900 rounded-xl border border-slate-800 px-4 py-2 sticky top-16 z-30 mx-2 md:mx-4">
+                        <div className="flex items-center gap-2 overflow-x-auto">
+                            <button onClick={() => setActiveTab('general')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'general' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><User className="w-4 h-4" /><span>Datos Generales</span></button>
+                            <button onClick={() => setActiveTab('evolution')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'evolution' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Wallet className="w-4 h-4" /><span>Evolución y Pagos</span></button>
+                            <button onClick={() => setActiveTab('initial')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'initial' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity className="w-4 h-4" /><span>Odontograma Ingreso</span></button>
+                            <button onClick={() => setActiveTab('progress')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'progress' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><CheckCircle2 className="w-4 h-4" /><span>Historial Avances</span></button>
+                            <button onClick={() => setActiveTab('attachments')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'attachments' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><ImageIcon className="w-4 h-4" /><span>Anexos (Placas)</span></button>
+                        </div>
+                        <div className="ml-auto flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (activeTab === 'general') return exportGeneralExcel();
+                              if (activeTab === 'evolution') return exportEvolutionExcel();
+                              if (activeTab === 'initial') return exportOdontogramExcel();
+                              if (activeTab === 'progress') return exportProgressExcel();
+                            }}
+                            disabled={!['general','evolution','initial','progress'].includes(activeTab)}
+                            className={`bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold ${!['general','evolution','initial','progress'].includes(activeTab) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            Exportar Excel
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (activeTab === 'general') { const d = buildGeneralPDF(); d.save('datos_generales.pdf'); return; }
+                              if (activeTab === 'evolution') { const d = buildEvolutionPDF(); d.save('evolucion_y_pagos.pdf'); return; }
+                              if (activeTab === 'initial') { const d = buildOdontogramPDF(); d.save('odontograma_ingreso.pdf'); return; }
+                              if (activeTab === 'progress') { const d = buildProgressPDF(); d.save('historial_avances.pdf'); return; }
+                            }}
+                            disabled={!['general','evolution','initial','progress'].includes(activeTab)}
+                            className={`bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold ${!['general','evolution','initial','progress'].includes(activeTab) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            Exportar PDF
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (['general','evolution','initial','progress'].includes(activeTab)) {
+                                const context = activeTab === 'general' ? 'general' : activeTab === 'evolution' ? 'evolution' : activeTab === 'initial' ? 'odontogram' : 'progress';
+                                setEmailModal({ open: true, to: '', context });
+                              }
+                            }}
+                            disabled={!['general','evolution','initial','progress'].includes(activeTab)}
+                            className={`bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold ${!['general','evolution','initial','progress'].includes(activeTab) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            Enviar por correo
+                          </button>
+                          <button
+                            onClick={() => handleDeletePatient(activePatient.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-xs font-bold"
+                          >
+                            Eliminar Paciente
+                          </button>
+                        </div>
+                    </div>
+                    <div className="md:hidden bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-4 flex flex-row md:flex-col gap-2 sticky top-16 md:top-24 z-30 overflow-x-auto md:overflow-visible scrollbar-hide w-full">
                         <div className="hidden md:block mb-4 px-2"><p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Menú Principal</p></div>
-                        <button onClick={() => setActiveTab('general')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'general' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><User className="w-4 h-4" /><span>Datos Generales</span></button>
-                        <button onClick={() => setActiveTab('evolution')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'evolution' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><Wallet className="w-4 h-4" /><span>Evolución y Pagos</span></button>
-                        <button onClick={() => setActiveTab('initial')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'initial' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><Activity className="w-4 h-4" /><span>Odontograma Ingreso</span></button>
-                        <button onClick={() => setActiveTab('progress')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'progress' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><CheckCircle2 className="w-4 h-4" /><span>Historial Avances</span></button>
-                        <button onClick={() => setActiveTab('attachments')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'attachments' ? 'bg-teal-50 text-teal-700 shadow-sm border-teal-200 border' : 'text-slate-500 hover:bg-slate-50'}`}><ImageIcon className="w-4 h-4" /><span>Anexos (Placas)</span></button>
+                        <button onClick={() => setActiveTab('general')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'general' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><User className="w-4 h-4" /><span>Datos Generales</span></button>
+                        <button onClick={() => setActiveTab('evolution')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'evolution' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Wallet className="w-4 h-4" /><span>Evolución y Pagos</span></button>
+                        <button onClick={() => setActiveTab('initial')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'initial' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><Activity className="w-4 h-4" /><span>Odontograma Ingreso</span></button>
+                        <button onClick={() => setActiveTab('progress')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'progress' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><CheckCircle2 className="w-4 h-4" /><span>Historial Avances</span></button>
+                        <button onClick={() => setActiveTab('attachments')} className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'attachments' ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white shadow-sm border-teal-200 dark:border-teal-800 border' : 'text-slate-500 dark:text-white hover:bg-slate-50 dark:hover:bg-slate-800'}`}><ImageIcon className="w-4 h-4" /><span>Anexos (Placas)</span></button>
                         <div className="hidden md:block flex-grow min-h-[50px]"></div>
                         <button onClick={() => handleDeletePatient(activePatient.id)} className="flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 mt-auto md:mt-4"><Trash2 className="w-4 h-4" /><span className="hidden md:inline">Eliminar Paciente</span></button>
                     </div>
                     
 
-                    <div className={`md:col-span-9 lg:col-span-9 rounded-xl shadow-lg border border-slate-200 p-6 md:p-8 min-h-[600px] ${activeTab === 'general' ? 'bg-teal-100' : activeTab === 'evolution' ? 'bg-amber-100' : activeTab === 'initial' ? 'bg-slate-100' : activeTab === 'attachments' ? 'bg-indigo-100' : 'bg-white'}` }>
+                    <div className={`md:col-span-12 lg:col-span-12 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 p-6 md:p-8 min-h-[600px] mx-2 md:mx-4 ${activeTab === 'general' ? 'bg-teal-100 dark:bg-teal-900/15' : activeTab === 'evolution' ? 'bg-amber-100 dark:bg-amber-900/15' : activeTab === 'initial' ? 'bg-slate-100 dark:bg-slate-900' : activeTab === 'attachments' ? 'bg-indigo-100 dark:bg-indigo-900/15' : 'bg-white dark:bg-slate-900'}` }>
                         {activeTab === 'general' && (
-                            <div className="max-w-4xl">
+                            <div className="w-full">
                                 <div className="flex items-center justify-between mb-6 border-b pb-4">
-                                  <h2 className="text-xl font-bold flex items-center text-slate-800"><FileText className="w-5 h-5 mr-2 text-teal-600" /> Ficha de Anamnesis</h2>
+                                  <h2 className="text-xl font-bold flex items-center text-slate-800 dark:text-white"><FileText className="w-5 h-5 mr-2 text-teal-600" /> Ficha de Anamnesis</h2>
                                   <div className="flex items-center gap-2"></div>
                                 </div>
                                 <form onSubmit={handleUpdateGeneralInfo} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="md:col-span-2 space-y-4">
-                                        <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded flex items-center"><User className="w-4 h-4 mr-2" /> Datos de Filiación</h3>
+                                        <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded flex items-center"><User className="w-4 h-4 mr-2" /> Datos de Filiación</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nombres y Apellidos</label><div className="flex gap-2"><input className="w-1/2 p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Nombres" value={formData.nombres} onChange={e => setFormData({...formData, nombres: e.target.value})} /><input className="w-1/2 p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" placeholder="Apellidos" value={formData.apellidos} onChange={e => setFormData({...formData, apellidos: e.target.value})} /></div></div>
-                                            <div className="grid grid-cols-3 gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Sexo</label><select className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.sexo} onChange={e => setFormData({...formData, sexo: e.target.value})}><option value="M">Masculino</option><option value="F">Femenino</option></select></div>
-                                                <div className="col-span-2"><label className="block text-xs font-bold text-slate-600 uppercase mb-1">DNI</label><div className="relative"><input className="w-full p-2.5 pr-10 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none bg-slate-50" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} maxLength={8} /><button type="button" onClick={() => searchDNI(formData.dni)} disabled={isSearchingDNI} className="absolute right-1 top-1 p-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-slate-400" title="Buscar en RENIEC">{isSearchingDNI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}</button></div></div>
+                                                <div className="md:col-span-2"><label className="block text-xs font-bold text-slate-600 uppercase mb-1">DNI</label><div className="relative"><input className="w-full p-2.5 pr-10 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none bg-slate-50" value={formData.dni} onChange={e => setFormData({...formData, dni: e.target.value})} maxLength={8} /><button type="button" onClick={() => searchDNI(formData.dni)} disabled={isSearchingDNI} className="absolute right-1 top-1 p-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-slate-400" title="Buscar en RENIEC">{isSearchingDNI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}</button></div></div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                  <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Fecha Nacimiento</label><input type="date" className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.fechaNacimiento} onChange={handleDOBChange} /></div>
                                                  <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Edad</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none bg-slate-100" value={formData.edad} readOnly placeholder="Auto" /></div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Lugar Nacimiento</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.lugarNacimiento} onChange={e => setFormData({...formData, lugarNacimiento: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Lugar Procedencia</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.lugarProcedencia} onChange={e => setFormData({...formData, lugarProcedencia: e.target.value})} /></div>
                                             </div>
                                         </div>
                                         <div className="md:col-span-2 space-y-4">
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded flex items-center"><MapPin className="w-4 h-4 mr-2" /> Ubicación y Contacto</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded flex items-center"><MapPin className="w-4 h-4 mr-2" /> Ubicación y Contacto</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Domicilio</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.domicilio} onChange={e => setFormData({...formData, domicilio: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Email</label><input type="email" className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
@@ -2422,7 +2504,7 @@ export default function App() {
                                         </div>
 
                                         <div className="md:col-span-2 space-y-4">
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded flex items-center"><Briefcase className="w-4 h-4 mr-2" /> Estado y Ocupación</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded flex items-center"><Briefcase className="w-4 h-4 mr-2" /> Estado y Ocupación</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Estado Civil</label><select className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.estadoCivil || ''} onChange={e => setFormData({...formData, estadoCivil: e.target.value})}><option value="Soltero">Soltero</option><option value="Casado">Casado</option><option value="Divorciado">Divorciado</option><option value="Viudo">Viudo</option></select></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Grado Instrucción</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.gradoInstruccion || ''} onChange={e => setFormData({...formData, gradoInstruccion: e.target.value})} /></div>
@@ -2439,11 +2521,11 @@ export default function App() {
                                         </div>
 
                                         <div className="md:col-span-2 space-y-4">
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded flex items-center"><Heart className="w-4 h-4 mr-2" /> Salud y Referencias</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded flex items-center"><Heart className="w-4 h-4 mr-2" /> Salud y Referencias</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Médico Tratante</label><input className="w-full p-2.5 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={formData.medicoTratante || ''} onChange={e => setFormData({...formData, medicoTratante: e.target.value})} /></div>
                                             </div>
-                                            <h4 className="text-xs font-bold text-slate-500 uppercase">Contacto de Emergencia</h4>
+                                            <h4 className="text-xs font-bold text-slate-500 dark:text-white uppercase">Contacto de Emergencia</h4>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre</label><input className="w-full p-2.5 border border-slate-300 rounded" value={formData.emergenciaNombre || ''} onChange={e => setFormData({...formData, emergenciaNombre: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Parentesco</label><input className="w-full p-2.5 border border-slate-300 rounded" value={formData.emergenciaParentesco || ''} onChange={e => setFormData({...formData, emergenciaParentesco: e.target.value})} /></div>
@@ -2451,7 +2533,7 @@ export default function App() {
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Teléfono</label><input className="w-full p-2.5 border border-slate-300 rounded" value={formData.emergenciaTelefono || ''} onChange={e => setFormData({...formData, emergenciaTelefono: e.target.value})} /></div>
                                             </div>
 
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded">Antecedentes y Hábitos</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded">Antecedentes y Hábitos</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Hábitos</label><input className="w-full p-2.5 border rounded" value={examForm.habitos} onChange={e => setExamForm({ ...examForm, habitos: e.target.value })} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Familiares</label><input className="w-full p-2.5 border rounded" value={examForm.antecedentesFamiliares} onChange={e => setExamForm({ ...examForm, antecedentesFamiliares: e.target.value })} /></div>
@@ -2460,7 +2542,7 @@ export default function App() {
                                                 <div className="md:col-span-2"><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Otros</label><input className="w-full p-2.5 border rounded" value={examForm.otrosAntecedentes} onChange={e => setExamForm({ ...examForm, otrosAntecedentes: e.target.value })} /></div>
                                             </div>
 
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded">Examen Físico</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded">Examen Físico</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <div className="md:col-span-2"><label className="block text-xs font-bold text-slate-600 uppercase mb-1">General</label><textarea className="w-full p-2.5 border rounded" rows={3} value={examForm.examenFisicoGeneral} onChange={e => setExamForm({ ...examForm, examenFisicoGeneral: e.target.value })}></textarea></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Cabeza</label><input className="w-full p-2.5 border rounded" value={examForm.examenFisicoRegional.cabeza} onChange={e => setExamForm({ ...examForm, examenFisicoRegional: { ...examForm.examenFisicoRegional, cabeza: e.target.value } })} /></div>
@@ -2469,7 +2551,7 @@ export default function App() {
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Examen extraoral</label><input className="w-full p-2.5 border rounded" value={examForm.examenExtraoral} onChange={e => setExamForm({ ...examForm, examenExtraoral: e.target.value })} /></div>
                                             </div>
 
-                                            <h3 className="font-semibold text-sm text-teal-700 uppercase tracking-wider bg-teal-50 p-2 rounded">Examen Intraoral</h3>
+                                            <h3 className="font-semibold text-sm text-teal-700 dark:text-white uppercase tracking-wider bg-teal-50 dark:bg-teal-900/25 p-2 rounded">Examen Intraoral</h3>
                                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Labios</label><input className="w-full p-2.5 border rounded" value={examForm.examenIntraoral.labios} onChange={e => setExamForm({ ...examForm, examenIntraoral: { ...examForm.examenIntraoral, labios: e.target.value } })} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-600 uppercase mb-1">Mejilla</label><input className="w-full p-2.5 border rounded" value={examForm.examenIntraoral.mejilla} onChange={e => setExamForm({ ...examForm, examenIntraoral: { ...examForm.examenIntraoral, mejilla: e.target.value } })} /></div>
@@ -2513,16 +2595,12 @@ export default function App() {
                         {activeTab === 'evolution' && (
                             <div className="space-y-6">
                                 <div className="flex items-center justify-between mb-2">
-                                  <h2 className="text-xl font-bold flex items-center text-slate-800"><Wallet className="w-5 h-5 mr-2 text-teal-600" /> Evolución y Pagos</h2>
-                                  <div className="flex items-center gap-2">
-                                    <button onClick={exportEvolutionExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar Excel</button>
-                                    <button onClick={() => { const d = buildEvolutionPDF(); d.save('evolucion_y_pagos.pdf'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar PDF</button>
-                                    <button onClick={() => setEmailModal({ open: true, to: '', context: 'evolution' })} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold">Enviar por correo</button>
-                                  </div>
+                                  <h2 className="text-xl font-bold flex items-center text-slate-800 dark:text-white"><Wallet className="w-5 h-5 mr-2 text-teal-600" /> Evolución y Pagos</h2>
+                                  <div className="flex items-center gap-2"></div>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                                        <h3 className="font-semibold text-slate-700 mb-3 flex items-center"><StethoscopeIcon className="w-4 h-4 mr-2" /> Registrar Visita</h3>
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+                                        <h3 className="font-semibold text-slate-700 dark:text-white mb-3 flex items-center"><StethoscopeIcon className="w-4 h-4 mr-2" /> Registrar Visita</h3>
                                         <form onSubmit={handleAddVisit} className="space-y-2">
                                             <div>
                                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Servicio</label>
@@ -2534,7 +2612,7 @@ export default function App() {
                                                     {services.map(s => (<option key={s.name} value={s.name}>{s.name} · S/ {s.price}</option>))}
                                                 </select>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha</label><input type="date" className="w-full p-2 border rounded" value={visitForm.date} onChange={e => setVisitForm({...visitForm, date: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Costo</label><input type="number" step="0.01" className="w-full p-2 border rounded" value={visitForm.cost} onChange={e => setVisitForm({...visitForm, cost: e.target.value})} /></div>
                                             </div>
@@ -2542,10 +2620,10 @@ export default function App() {
                                             <button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-bold">Agregar Visita</button>
                                         </form>
                                     </div>
-                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                                        <h3 className="font-semibold text-slate-700 mb-3 flex items-center"><CreditCard className="w-4 h-4 mr-2" /> Registrar Pago</h3>
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+                                        <h3 className="font-semibold text-slate-700 dark:text-white mb-3 flex items-center"><CreditCard className="w-4 h-4 mr-2" /> Registrar Pago</h3>
                                         <form onSubmit={handleAddPayment} className="space-y-2">
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fecha</label><input type="date" className="w-full p-2 border rounded" value={paymentForm.date} onChange={e => setPaymentForm({...paymentForm, date: e.target.value})} /></div>
                                                 <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Monto</label><input type="number" step="0.01" className="w-full p-2 border rounded" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} /></div>
                                             </div>
@@ -2554,32 +2632,32 @@ export default function App() {
                                         </form>
                                     </div>
                                 </div>
-                                <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="font-semibold text-slate-700">Historial Económico</h3>
-                                        <div className="text-sm">
-                                            <span className="mr-3">Total: S/ {totals.cost.toFixed(2)}</span>
-                                            <span className="mr-3">Pagado: S/ {totals.paid.toFixed(2)}</span>
+                                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                                        <h3 className="font-semibold text-slate-700 dark:text-white">Historial Económico</h3>
+                                        <div className="text-sm text-slate-600 dark:text-slate-300 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            <span>Total: S/ {totals.cost.toFixed(2)}</span>
+                                            <span>Pagado: S/ {totals.paid.toFixed(2)}</span>
                                             <span className={totals.balance > 0 ? 'text-red-600 font-bold' : 'text-green-600 font-bold'}>Saldo: S/ {totals.balance.toFixed(2)}</span>
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         {(!activePatient.treatments || activePatient.treatments.length === 0) ? (
-                                            <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Sin registros económicos.</div>
+                                            <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg p-6 text-center text-slate-500 dark:text-slate-300 text-sm">Sin registros económicos.</div>
                                         ) : (
                                             activePatient.treatments.map(t => (
-                                                <div key={t.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg p-3">
-                                                    <div className="text-sm">
-                                                        <div className="font-medium text-slate-800">{t.type === 'visit' ? 'Visita' : 'Pago'} · {t.date}</div>
-                                                        <div className="text-slate-500">{t.description}</div>
+                                                <div key={t.id} className="flex flex-col md:flex-row md:items-center justify-between bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 gap-3 md:gap-0">
+                                                    <div className="text-sm w-full md:w-auto">
+                                                        <div className="font-medium text-slate-800 dark:text-white">{t.type === 'visit' ? 'Visita' : 'Pago'} · {t.date}</div>
+                                                        <div className="text-slate-500 dark:text-white mt-1 md:mt-0 break-words">{t.description}</div>
                                                     </div>
-                                                    <div className="flex items-center gap-4">
+                                                    <div className="flex items-center justify-between w-full md:w-auto md:gap-4 border-t md:border-t-0 border-slate-200 pt-2 md:pt-0 mt-2 md:mt-0">
                                                         {t.type === 'visit' ? (
-                                                            <span className="text-slate-800">S/ {Number(t.cost || 0).toFixed(2)}</span>
+                                                            <span className="text-slate-800 dark:text-white font-bold">S/ {Number(t.cost || 0).toFixed(2)}</span>
                                                         ) : (
                                                             <span className="text-green-700 font-bold">S/ {Number(t.payment || 0).toFixed(2)}</span>
                                                         )}
-                                                        <button onClick={() => handleDeleteTreatment(t.id)} className="text-red-600 hover:bg-red-50 px-2 py-1 rounded">Eliminar</button>
+                                                        <button onClick={() => handleDeleteTreatment(t.id)} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded text-xs uppercase font-bold">Eliminar</button>
                                                     </div>
                                                 </div>
                                             ))
@@ -2591,26 +2669,19 @@ export default function App() {
 
                         {activeTab === 'initial' && (
                             <div>
-                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-4">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                                   <h2 className="text-xl font-bold flex items-center text-slate-800"><Activity className="w-5 h-5 mr-2 text-teal-600" /> Odontograma de Ingreso</h2>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <button onClick={exportOdontogramExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar Excel</button>
-                                    <button onClick={() => { const d = buildOdontogramPDF(); d.save('odontograma_ingreso.pdf'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar PDF</button>
-                                    <button onClick={() => setEmailModal({ open: true, to: '', context: 'odontogram' })} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold">Enviar por correo</button>
-                                  </div>
+                                  <div className="grid grid-cols-2 md:flex md:flex-wrap items-center gap-2 w-full md:w-auto"></div>
                                 </div>
-                                <Odontogram data={activePatient.odontogram_initial || {}} onSave={handleSaveOdontogramInitial} />
+                                <RealisticOdontogram data={activePatient.odontogram_initial || {}} onSave={handleSaveOdontogramInitial} />
                             </div>
                         )}
 
                         {activeTab === 'progress' && (
                             <div>
                                 <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-4">
-                                    <h2 className="text-xl font-bold text-slate-800">Registrar Avance</h2>
+                                    <h2 className="text-xl font-bold text-slate-800 dark:text-white">Registrar Avance</h2>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <button onClick={exportProgressExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar Excel</button>
-                                      <button onClick={() => { const d = buildProgressPDF(); d.save('historial_avances.pdf'); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded text-xs font-bold">Exportar PDF</button>
-                                      <button onClick={() => setEmailModal({ open: true, to: '', context: 'progress' })} className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded text-xs font-bold">Enviar por correo</button>
                                       <button onClick={handleStartNewProgress} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Nuevo Avance</button>
                                     </div>
                                 </div>
@@ -2618,15 +2689,15 @@ export default function App() {
                                 {!isCreatingProgress && (
                                     <div className="grid gap-4">
                                         {(!activePatient.progress_records || activePatient.progress_records.length === 0) ? (
-                                            <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                                            <div className="text-center py-8 bg-slate-50 dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
                                                 <CheckCircle2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                                                <p className="text-slate-500 font-medium">No hay avances registrados.</p>
+                                                <p className="text-slate-500 dark:text-white font-medium">No hay avances registrados.</p>
                                             </div>
                                         ) : (
                                             activePatient.progress_records.map(record => (
                                                 <div
                                                     key={record.id}
-                                                    className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:border-teal-300 hover:shadow-md transition-all cursor-pointer flex justify-between items-start"
+                                                    className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:border-teal-300 hover:shadow-md transition-all cursor-pointer flex flex-col md:flex-row justify-between items-start gap-4 md:gap-0"
                                                     onClick={() => {
                                                         setSelectedProgress(record);
                                                         setProgressForm({
@@ -2639,18 +2710,18 @@ export default function App() {
                                                         setIsCreatingProgress(true);
                                                     }}
                                                 >
-                                                    <div className="flex items-start space-x-4">
-                                                        <div className="bg-teal-50 p-3 rounded-lg text-teal-700 font-bold text-center min-w-[80px]">
+                                                    <div className="flex items-start gap-4 w-full md:w-auto">
+                                                        <div className="bg-teal-50 dark:bg-teal-900/30 p-3 rounded-lg text-teal-700 dark:text-white font-bold text-center min-w-[80px] flex-shrink-0">
                                                             <div className="text-xs uppercase tracking-wider mb-1">FECHA</div>
                                                             <div className="text-lg">{record.date}</div>
                                                         </div>
-                                                        <div>
-                                                            <h4 className="font-bold text-slate-800 mb-1">{record.title || 'Registro de Avance'}</h4>
-                                                            <p className="text-slate-600 text-sm line-clamp-2">{record.notes || 'Sin notas adicionales.'}</p>
+                                                        <div className="min-w-0">
+                                                            <h4 className="font-bold text-slate-800 dark:text-white mb-1 truncate">{record.title || 'Registro de Avance'}</h4>
+                                                            <p className="text-slate-600 dark:text-white text-sm line-clamp-2 break-words">{record.notes || 'Sin notas adicionales.'}</p>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center space-x-2">
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProgress(record.id); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                                    <div className="flex items-center justify-end w-full md:w-auto gap-2 border-t md:border-t-0 border-slate-100 pt-3 md:pt-0">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProgress(record.id); }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors"><Trash2 className="w-4 h-4" /></button>
                                                         <ChevronRight className="text-slate-300" />
                                                     </div>
                                                 </div>
@@ -2660,35 +2731,38 @@ export default function App() {
                                 )}
 
                                 {isCreatingProgress && selectedProgress && (
-                                    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+                                        <div className="flex items-center justify-between mb-3">
+                                          <button className="bg-slate-800 text-white px-3 py-2 rounded-lg text-sm" onClick={() => { setIsCreatingProgress(false); setSelectedProgress(null); }}>Atrás</button>
+                                        </div>
                                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                                             <div className="md:col-span-12">
-                                                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Título</label>
-                                                <input type="text" placeholder="Ej: Control de caries, resinas, extracciones" className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.title} onChange={(e) => setProgressForm({...progressForm, title: e.target.value})} />
+                                                <label className="block text-xs font-bold text-slate-500 dark:text-white mb-1 uppercase">Título</label>
+                                                <input type="text" placeholder="Ej: Control de caries, resinas, extracciones" className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.title} onChange={(e) => setProgressForm({...progressForm, title: e.target.value})} />
                                             </div>
                                             <div className="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-2">
                                                 <div>
-                                                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Fecha del avance</label>
-                                                    <input type="date" className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.date} onChange={(e) => setProgressForm({...progressForm, date: e.target.value})} />
+                                                    <label className="block text-xs font-bold text-slate-500 dark:text-white mb-1 uppercase">Fecha del avance</label>
+                                                    <input type="date" className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.date} onChange={(e) => setProgressForm({...progressForm, date: e.target.value})} />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Adjuntar fotos/TAC/Placas</label>
-                                                    <button onClick={handleAddAttachmentToProgress} className="w-full p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded border border-slate-300 flex items-center justify-center text-sm transition-colors"><Camera className="w-4 h-4 mr-2"/> Agregar Foto</button>
+                                                    <label className="block text-xs font-bold text-slate-500 dark:text-white mb-1 uppercase">Adjuntar fotos/TAC/Placas</label>
+                                                    <button onClick={handleAddAttachmentToProgress} className="w-full p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-white rounded border border-slate-300 dark:border-slate-700 flex items-center justify-center text-sm transition-colors"><Camera className="w-4 h-4 mr-2"/> Agregar Foto</button>
                                                 </div>
                                                 <div className="md:col-span-12">
-                                                    <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Notas Clínicas</label>
-                                                    <input type="text" placeholder="Describa el estado o cambios realizados..." className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.notes} onChange={(e) => setProgressForm({...progressForm, notes: e.target.value})} />
+                                                    <label className="block text-xs font-bold text-slate-500 dark:text-white mb-1 uppercase">Notas Clínicas</label>
+                                                    <input type="text" placeholder="Describa el estado o cambios realizados..." className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none" value={progressForm.notes} onChange={(e) => setProgressForm({...progressForm, notes: e.target.value})} />
                                                 </div>
                                             </div>
                                             <input ref={progressFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleProgressFilesSelected} />
                                             {progressForm.attachments && progressForm.attachments.length > 0 && (
-                                                <div className="md:col-span-12 mb-2 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                                    <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Fotos adjuntas a este avance:</h4>
+                                                <div className="md:col-span-12 mb-2 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                    <h4 className="text-xs font-bold text-slate-500 dark:text-white uppercase mb-2">Fotos adjuntas a este avance:</h4>
                                                     <div className="grid grid-cols-3 md:grid-cols-8 gap-2">
                                                         {progressForm.attachments.map((att) => (
-                                                            <div key={att.id} className="relative aspect-square bg-slate-200 rounded border border-slate-300 overflow-hidden">
+                                                            <div key={att.id} className="relative aspect-square bg-slate-200 dark:bg-slate-700 rounded border border-slate-300 dark:border-slate-600 overflow-hidden">
                                                                 {att.url ? <img src={att.url} alt={att.name} className="w-full h-full object-cover" /> : <FileImage className="absolute inset-0 m-auto w-8 h-8 text-slate-400" />}
-                                                                <button onClick={() => handleRemoveProgressAttachment(att.id)} className="absolute top-1 right-1 bg-white/90 text-red-600 rounded-full p-1 border border-red-200 hover:bg-red-50">
+                                                                <button onClick={() => handleRemoveProgressAttachment(att.id)} className="absolute top-1 right-1 bg-white/90 dark:bg-slate-800/90 text-red-600 rounded-full p-1 border border-red-200 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20">
                                                                     <X className="w-3 h-3" />
                                                                 </button>
                                                             </div>
@@ -2699,11 +2773,11 @@ export default function App() {
                                             <div className="md:col-span-12 flex items-center gap-2">
                                                 <button onClick={() => handleSaveProgress(progressOdontogram)} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-bold">Guardar Avance</button>
                                                 {selectedProgress?.id !== 'new' && (
-                                                  <button onClick={() => handleDeleteProgress(selectedProgress.id)} className="text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-bold">Eliminar Avance</button>
+                                                  <button onClick={() => handleDeleteProgress(selectedProgress.id)} className="text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-2 rounded-lg text-sm font-bold">Eliminar Avance</button>
                                                 )}
                                             </div>
                                             <div className="md:col-span-12 min-w-0">
-                                                <Odontogram key={selectedProgress.id} type="progress" data={selectedProgress.odontogramData} onSave={(data) => handleSaveProgress(data)} onChange={(d) => setProgressOdontogram(d)} />
+                                            <RealisticOdontogram key={selectedProgress.id} data={selectedProgress.odontogramData} onSave={(data) => handleSaveProgress(data)} onChange={(d) => setProgressOdontogram(d)} />
                                             </div>
                                         </div>
                                     </div>
@@ -2712,59 +2786,95 @@ export default function App() {
                         )}
 
                         {activeTab === 'attachments' && (
-                            <div className="max-w-4xl mx-auto animate-in fade-in duration-300">
-                                <h2 className="text-xl font-bold mb-6 text-slate-800 border-b pb-4">Galería de Anexos</h2>
+                            <div className="w-full mx-auto animate-in fade-in duration-300">
+                                <h2 className="text-xl font-bold mb-6 text-slate-800 dark:text-white border-b pb-4 dark:border-slate-700">Galería de Anexos</h2>
                                 <div className="mb-8">
                                     <div className="flex justify-between items-center mb-4">
-                                        <h3 className="font-bold text-slate-700 flex items-center"><ImageIcon className="w-5 h-5 mr-2 text-teal-600"/> Placas y Fotos Generales</h3>
-                                        <button onClick={handleAddGeneralAttachment} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded border border-slate-300 flex items-center transition-colors"><Upload className="w-4 h-4 mr-2"/> Subir Archivo</button>
+                                        <h3 className="font-bold text-slate-700 dark:text-white flex items-center"><Clock className="w-5 h-5 mr-2 text-teal-600"/> Historial previo</h3>
+                                    </div>
+                                    {(() => {
+                                      const prev = (activePatient.general_attachments || []).filter(att => att.origin === 'initial');
+                                      if (!prev.length) {
+                                        return (
+                                          <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center bg-slate-50 dark:bg-slate-800">
+                                            <p className="text-slate-400 dark:text-white text-sm">Sin fotos previas vinculadas.</p>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                          {prev.map((att, i) => (
+                                            <div key={i} className="aspect-square bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-2 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                              <div className="w-full h-full bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center overflow-hidden cursor-zoom-in" onClick={() => setImagePreview(att)}>
+                                                {att.url ? <img src={att.url} alt={att.name} className="w-full h-full object-cover" /> : <ImageIcon className="w-10 h-10 text-slate-300" />}
+                                              </div>
+                                              <button onClick={() => handleRemoveGeneralAttachment(att.id)} className="absolute top-1 right-1 bg-white/90 dark:bg-slate-800/90 text-red-600 rounded-full p-1 border border-red-200 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                              <div className="absolute bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-800/90 p-2 text-xs text-center truncate border-t border-slate-100 dark:border-slate-700 dark:text-white">{att.name}</div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
+                                    })()}
+                                </div>
+                                <div className="mb-8">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-slate-700 dark:text-white flex items-center"><ImageIcon className="w-5 h-5 mr-2 text-teal-600"/> Placas y Fotos Generales</h3>
+                                        <button onClick={handleAddGeneralAttachment} className="text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 flex items-center transition-colors"><Upload className="w-4 h-4 mr-2"/> Subir Archivo</button>
                                     </div>
                                     <input ref={generalFileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleGeneralFilesSelected} />
-                                    {(!activePatient.general_attachments || activePatient.general_attachments.length === 0) ? (
-                                        <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50">
-                                            <p className="text-slate-400 text-sm">No hay anexos generales cargados.</p>
-                                        </div>
-                                    ) : (
+                                    {(() => {
+                                      const general = (activePatient.general_attachments || []).filter(att => att.origin !== 'initial');
+                                      if (!general.length) {
+                                        return (
+                                          <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center bg-slate-50 dark:bg-slate-800">
+                                            <p className="text-slate-400 dark:text-white text-sm">No hay anexos generales cargados.</p>
+                                          </div>
+                                        );
+                                      }
+                                      return (
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                            {activePatient.general_attachments.map((att, i) => (
-                                                <div key={i} className="aspect-square bg-white rounded-lg border border-slate-200 p-2 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-                                                    <div className="w-full h-full bg-slate-100 rounded flex items-center justify-center overflow-hidden cursor-zoom-in" onClick={() => setImagePreview(att)}>
-                                                        {att.url ? <img src={att.url} alt={att.name} className="w-full h-full object-cover" /> : <ImageIcon className="w-10 h-10 text-slate-300" />}
-                                                    </div>
-                                                    <button onClick={() => handleRemoveGeneralAttachment(att.id)} className="absolute top-1 right-1 bg-white/90 text-red-600 rounded-full p-1 border border-red-200 hover:bg-red-50">
-                                                        <X className="w-3 h-3" />
-                                                    </button>
-                                                    <div className="absolute bottom-0 left-0 right-0 bg-white/90 p-2 text-xs text-center truncate border-t border-slate-100">{att.name}</div>
-                                                </div>
-                                            ))}
+                                          {general.map((att, i) => (
+                                            <div key={i} className="aspect-square bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-2 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                              <div className="w-full h-full bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center overflow-hidden cursor-zoom-in" onClick={() => setImagePreview(att)}>
+                                                {att.url ? <img src={att.url} alt={att.name} className="w-full h-full object-cover" /> : <ImageIcon className="w-10 h-10 text-slate-300" />}
+                                              </div>
+                                              <button onClick={() => handleRemoveGeneralAttachment(att.id)} className="absolute top-1 right-1 bg-white/90 dark:bg-slate-800/90 text-red-600 rounded-full p-1 border border-red-200 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20">
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                              <div className="absolute bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-800/90 p-2 text-xs text-center truncate border-t border-slate-100 dark:border-slate-700 dark:text-white">{att.name}</div>
+                                            </div>
+                                          ))}
                                         </div>
-                                    )}
+                                      );
+                                    })()}
                                 </div>
                                 <div>
                                     <h3 className="font-bold text-slate-700 flex items-center mb-4"><History className="w-5 h-5 mr-2 text-teal-600"/> Historial de Fotos por Avance</h3>
                                     {(!activePatient.progress_records || activePatient.progress_records.every(r => !r.attachments || r.attachments.length === 0)) ? (
-                                        <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-slate-50">
-                                            <p className="text-slate-400 text-sm">No hay fotos vinculadas a los avances clínicos.</p>
+                                        <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-8 text-center bg-slate-50 dark:bg-slate-800">
+                                            <p className="text-slate-400 dark:text-white text-sm">No hay fotos vinculadas a los avances clínicos.</p>
                                         </div>
                                     ) : (
                                         <div className="space-y-6">
                                             {activePatient.progress_records.filter(r => r.attachments && r.attachments.length > 0).map((record) => (
-                                                <div key={record.id} className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+                                                <div key={record.id} className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
                                                     <div className="flex items-center mb-3 pb-2 border-b border-slate-100">
-                                                        <div className="bg-teal-50 text-teal-700 text-xs font-bold px-2 py-1 rounded mr-2">{record.date}</div>
-                                                        <h4 className="font-bold text-slate-800 text-sm">Anexos Avance: {record.title || 'Sin Título'}</h4>
+                                                        <div className="bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-white text-xs font-bold px-2 py-1 rounded mr-2">{record.date}</div>
+                                                        <h4 className="font-bold text-slate-800 dark:text-white text-sm">Anexos Avance: {record.title || 'Sin Título'}</h4>
                                                     </div>
                                                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                                         {record.attachments.map((att, idx) => (
-                                                            <div key={idx} className="aspect-square bg-white rounded-lg border border-slate-200 p-2 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
-                                                                <div className="w-full h-full bg-slate-100 rounded flex items-center justify-center overflow-hidden cursor-zoom-in" onClick={() => setImagePreview(att)}>
+                                                            <div key={idx} className="aspect-square bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 p-2 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                                                                <div className="w-full h-full bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center overflow-hidden cursor-zoom-in" onClick={() => setImagePreview(att)}>
                                                                     {att.url ? (
                                                                         <img src={att.url} alt={att.name} className="w-full h-full object-cover" />
                                                                     ) : (
                                                                         <ImageIcon className="w-10 h-10 text-slate-300" />
                                                                     )}
                                                                 </div>
-                                                                <div className="absolute bottom-0 left-0 right-0 bg-white/90 p-2 text-xs text-center truncate border-t border-slate-100">{att.name}</div>
+                                                                <div className="absolute bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-800/90 p-2 text-xs text-center truncate border-t border-slate-100 dark:border-slate-700 dark:text-white">{att.name}</div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -2779,12 +2889,9 @@ export default function App() {
                 </div>
             </div>
         )}
-      </main>
       
       {view==='dashboard' && (
         <>
-          <button onClick={() => { setFormData(initialFormState); setView('new-patient'); }} className="md:hidden fixed bottom-16 right-4 z-50 bg-slate-900 hover:bg-slate-800 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-xs font-bold">+
-          </button>
           <button onClick={exportPatientsExcel} aria-label="Exportar Excel" className="md:hidden fixed bottom-32 right-4 z-50 bg-emerald-600 hover:bg-emerald-700 text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center">
             <FileSpreadsheet className="w-5 h-5" />
           </button>
@@ -2799,15 +2906,7 @@ export default function App() {
           <button onClick={() => setManualReminderOpen(true)} className="md:hidden fixed bottom-16 right-4 z-50 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full shadow-lg text-xs font-bold">Crear manual</button>
         </>
       )}
-      <div className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-white border-t border-slate-200">
-        <div className="grid grid-cols-5">
-          <button onClick={() => setView('agenda')} className={`flex flex-col items-center justify-center py-2 ${view==='agenda'?'text-teal-700':'text-slate-600'}`}><Calendar className="w-6 h-6" /><span className="text-[11px]">Agenda</span></button>
-          <button onClick={() => setView('dashboard')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='dashboard'?'text-teal-700':'text-slate-600'}`}><User className="w-6 h-6" /><span className="text-[11px]">Pacientes</span></button>
-          <button onClick={() => setView('services')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='services'?'text-teal-700':'text-slate-600'}`}><DollarSign className="w-6 h-6" /><span className="text-[11px]">Servicios</span></button>
-          <button onClick={() => setView('reminders')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='reminders'?'text-teal-700':'text-slate-600'}`}><Clock className="w-6 h-6" /><span className="text-[11px]">Recordatorios</span></button>
-          <button onClick={() => setView('reminders-config')} className={`flex flex-col items-center justify-center py-2 border-l border-slate-200 ${view==='reminders-config'?'text-teal-700':'text-slate-600'}`}><History className="w-6 h-6" /><span className="text-[11px]">Config</span></button>
-        </div>
-      </div>
+      
       {imagePreview && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setImagePreview(null)}>
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -2824,6 +2923,6 @@ export default function App() {
           </div>
         </div>
       )}
-    </div>
+    </MainLayout>
   );
 }

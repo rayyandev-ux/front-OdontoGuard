@@ -51,6 +51,23 @@ export async function deletePatient(token, id) {
   return res.json()
 }
 
+export async function listDeletedPatients(token) {
+  const res = await fetch(`${API_BASE}/api/patients/deleted`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('List deleted patients failed')
+  return res.json()
+}
+
+export async function recoverPatient(token, id) {
+  const res = await fetch(`${API_BASE}/api/patients/${id}/recover`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Recover patient failed')
+  return res.json()
+}
+
 export async function extractPatientFromImages(token, images) {
   const res = await fetch(`${API_BASE}/api/ai/extract-patient`, {
     method: 'POST',

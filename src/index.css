@@ -9,6 +9,13 @@
 
 html, body {
   background-color: #f3f4f6;
+  max-width: 100vw;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+.dark html, .dark body {
+  background-color: #0b1220;
 }
 
 .odontogram-row {
@@ -16,16 +23,47 @@ html, body {
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
+  padding-left: 16px;
+  padding-right: 16px;
+  scroll-padding-left: 16px;
+  scroll-padding-right: 16px;
+  mask-image: linear-gradient(90deg, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 24px, black calc(100% - 24px), transparent 100%);
 }
 
 .odontogram-row .tooth-item {
   scroll-snap-align: start;
+  scroll-margin-left: 12px;
+  scroll-margin-right: 12px;
 }
 
 @media (max-width: 480px) {
   .odontogram-row {
+    padding-left: 16px;
+    padding-right: 16px;
+    scroll-padding-left: 16px;
+    scroll-padding-right: 16px;
+  }
+  .odontogram-row .tooth-item {
+    width: calc(33.333vw - 24px);
+  }
+}
+
+@media (max-width: 768px) {
+  .odontogram-row .tooth-item {
+    width: calc(33.333vw - 24px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .odontogram-row {
+    overflow-x: visible;
+    scroll-snap-type: none;
     padding-left: 8px;
     padding-right: 8px;
+  }
+  .odontogram-row .tooth-item {
+    scroll-snap-align: none;
   }
 }
 
@@ -33,6 +71,52 @@ html, body {
 .bg-slate-50.border.border-slate-200,
 .bg-slate-100.border.border-slate-200 {
   box-shadow: var(--card-shadow);
+}
+
+/* Dark mode neutral overrides */
+.dark .bg-white { background-color: #0f172a !important; }
+.dark .bg-slate-50 { background-color: #0b1320 !important; }
+.dark .bg-slate-100 { background-color: #111827 !important; }
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-slate-500 { color: #ffffff !important; }
+.dark .border-slate-100 { border-color: #1f2937 !important; }
+.dark .border-slate-200 { border-color: #334155 !important; }
+.dark .shadow-sm { box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important; }
+
+/* Accent icon chips in dark */
+.dark .bg-teal-50 { background-color: rgba(15, 118, 110, 0.20) !important; }
+.dark .bg-indigo-50 { background-color: rgba(79, 70, 229, 0.18) !important; }
+.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.18) !important; }
+.dark .text-teal-600,
+.dark .text-indigo-600,
+.dark .text-amber-600 { color: #ffffff !important; }
+
+/* Inputs in dark */
+.dark input[type="text"],
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="number"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark select,
+.dark textarea {
+  background-color: #0f172a;
+  color: #e5e7eb;
+  border-color: #334155;
+}
+
+/* Fallback for inputs without explicit type */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  background-color: #0f172a;
+  color: #e5e7eb;
+  border-color: #334155;
+}
+
+.dark ::placeholder {
+  color: #94a3b8;
 }
 
 input[type="text"],
@@ -45,4 +129,30 @@ select,
 textarea {
   box-shadow: var(--input-shadow);
   background-color: #fff;
+}
+/* Mobile toolbar scroll hint */
+.tool-scroll {
+  mask-image: linear-gradient(90deg, transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+}
+.tool-scroll .tool-chip { flex: 0 0 auto; }
+
+/* Show slim scrollbar on horizontal containers */
+.odontogram-row::-webkit-scrollbar,
+.tool-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.odontogram-row::-webkit-scrollbar-thumb,
+.tool-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,0.35);
+  border-radius: 9999px;
+}
+.odontogram-row::-webkit-scrollbar-track,
+.tool-scroll::-webkit-scrollbar-track {
+  background: rgba(30,41,59,0.25);
+}
+.dark .tool-chip:hover {
+  background-color: #1f2937; /* slate-800 */
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35);
 }

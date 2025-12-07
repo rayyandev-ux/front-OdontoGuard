@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import Tesseract, { createWorker } from 'tesseract.js'
 import sharp from 'sharp'
+import process from 'node:process'
 
 function toDataUri(buf, ext) {
   return 'data:image/' + (ext || 'jpeg') + ';base64,' + buf.toString('base64')
