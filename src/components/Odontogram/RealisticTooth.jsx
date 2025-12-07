@@ -44,9 +44,10 @@ const RealisticTooth = ({ id, data, activeTool, onUpdate, position }) => {
   // Root path (simple approximation based on type)
   const getRootPath = () => {
     const count = getRootsFor(type, isUpper);
-    if (count === 1) return "M45,20 L50,-58 L55,20 Z";
-    if (count === 2) return "M32,20 L40,-48 L48,20 Z M60,20 L68,-48 L76,20 Z";
-    return "M26,20 L34,-42 L42,20 Z M46,20 L50,-52 L54,20 Z M64,20 L72,-42 L80,20 Z";
+    // Widen the roots for better visibility
+    if (count === 1) return "M40,20 L50,-58 L60,20 Z";
+    if (count === 2) return "M28,20 L40,-48 L52,20 Z M56,20 L68,-48 L80,20 Z";
+    return "M22,20 L34,-42 L46,20 Z M45,20 L50,-52 L55,20 Z M62,20 L72,-42 L86,20 Z";
   };
 
   return (

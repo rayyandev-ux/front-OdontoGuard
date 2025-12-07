@@ -22,6 +22,7 @@ import {
   Calendar,
   Phone,
   Upload,
+  Send,
   FileSpreadsheet,
   DollarSign,
   Clock,
@@ -1783,7 +1784,7 @@ export default function App() {
         )}
 
         {view === 'agenda' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-slide-in-right">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-2xl font-bold text-slate-800 flex items-center"><Calendar className="w-6 h-6 mr-2 text-teal-600" /> Agenda</h2>
@@ -1794,7 +1795,7 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 overflow-x-hidden">
                 <div className="flex flex-col md:flex-row items-start md:items-center gap-2 mb-4">
                   <div className="w-full md:w-auto pb-2 md:pb-0 flex items-center gap-2 flex-wrap">
                     <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden flex-shrink-0">
@@ -1829,7 +1830,7 @@ export default function App() {
                   </div>
                   {monthMatrix.flat().map((d, i) => {
                     const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-                    const items = apptsByDay.get(key) || [];
+                    const items = (apptsByDay.get(key) || []).sort((a,b) => new Date(a.startAt) - new Date(b.startAt));
                     const other = d.getMonth() !== calendarDate.getMonth();
                     const today = sameDay(d, new Date());
                     return (
@@ -1839,13 +1840,13 @@ export default function App() {
                           <button onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDayModal({ open: true, date: d }); }} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-slate-600 hover:text-teal-700 p-1 rounded" title="Nueva cita"><Plus className="w-4 h-4" /></button>
                         </div>
                         <div className="space-y-1">
-                          {(isMobile ? items.slice(0,3) : items.slice(0,3)).map(a => {
+                          {items.slice(0,3).map(a => {
                             const c = a.status==='completed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : a.status==='scheduled' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200';
                             const t = new Date(a.startAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
                             return (
-                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c}`}>
+                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c} w-full`}>
                                 <span className={`inline-block w-2 h-2 rounded-full ${a.status==='completed'?'bg-emerald-600':a.status==='scheduled'?'bg-blue-600':'bg-slate-500'}`}></span>
-                                <span className={`${isMobile?'truncate max-w-[120px]':'inline'}`}>{isMobile ? `${t} • ${a.title}` : `${t} • ${a.title}`}</span>
+                                <span className="truncate min-w-0 w-full">{`${t} • ${a.title}`}</span>
                               </div>
                             );
                           })}
@@ -1878,9 +1879,9 @@ export default function App() {
                             const c = a.status==='completed' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : a.status==='scheduled' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200';
                             const t = new Date(a.startAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
                             return (
-                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c}`}>
+                              <div key={a.id} className={`text-[11px] rounded px-2 py-1 flex items-center gap-1 ${c} w-full`}>
                                 <span className={`inline-block w-2 h-2 rounded-full ${a.status==='completed'?'bg-emerald-600':a.status==='scheduled'?'bg-blue-600':'bg-slate-500'}`}></span>
-                                <span className={`${isMobile?'truncate max-w-[120px]':'inline'}`}>{`${t} • ${a.title}`}</span>
+                                <span className="truncate min-w-0 w-full">{`${t} • ${a.title}`}</span>
                               </div>
                             );
                           })}
@@ -2024,40 +2025,67 @@ export default function App() {
                 </div>
               )}
                 {calendarView !== 'day' && selectedDay && (
-                  <div className="space-y-2">
+                      <div className="space-y-2 max-w-full overflow-x-hidden animate-slide-in-down">
                     {(appointments || []).filter(a => sameDay(new Date(a.startAt), selectedDay)).sort((a,b) => new Date(a.startAt) - new Date(b.startAt)).map(a => {
                         const dt = new Date(a.startAt);
                         const isEditing = editingAppointmentId === a.id;
                         const pendingReminder = (reminders || []).find(r => r.appointmentId === a.id && r.status === 'pending');
+                        const patient = (patients || []).find(p => p.id === a.patientId);
+                        const service = (services || []).find(s => s.id === a.serviceId);
+                        const accent = a.status==='completed' ? 'border-emerald-500' : a.status==='scheduled' ? 'border-indigo-500' : 'border-slate-400';
                         return (
-                          <div key={a.id} className="border border-slate-200 bg-white rounded px-3 py-2 text-xs">
+                          <div key={a.id} className={`bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm hover:border-indigo-300 hover:shadow-md transition-all ${accent} border-l-4 w-full max-w-full overflow-hidden`}>
                             {isEditing ? (
-                              <form onSubmit={handleUpdateAppointmentSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-1 items-end">
-                                <input value={appointmentEditForm.title} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, title: e.target.value })} className="p-1 border rounded text-xs" placeholder="Título" />
-                                <select value={appointmentEditForm.serviceId} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, serviceId: e.target.value })} className="p-1 border rounded text-xs">
-                                  <option value="">Servicio</option>
-                                  {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                                <input type="datetime-local" value={appointmentEditForm.startAt} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, startAt: e.target.value })} className="p-1 border rounded text-xs" />
-                                <div className="flex gap-1">
-                                  <button type="submit" className="px-2 py-0.5 bg-emerald-600 text-white rounded">Guardar</button>
-                                  <button type="button" onClick={handleCancelEditAppointment} className="px-2 py-0.5 bg-slate-200 text-slate-900 rounded">Cancelar</button>
-                                </div>
-                              </form>
+                              <div className="px-3 py-2">
+                                <form onSubmit={handleUpdateAppointmentSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                                  <input value={appointmentEditForm.title} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, title: e.target.value })} className="p-2 border rounded text-xs" placeholder="Título" />
+                                  <select value={appointmentEditForm.serviceId} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, serviceId: e.target.value })} className="p-2 border rounded text-xs">
+                                    <option value="">Servicio</option>
+                                    {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                  </select>
+                                  <input type="datetime-local" value={appointmentEditForm.startAt} onChange={e => setAppointmentEditForm({ ...appointmentEditForm, startAt: e.target.value })} className="p-2 border rounded text-xs" />
+                                  <div className="flex gap-2 justify-end">
+                                    <button type="submit" className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold">Guardar</button>
+                                    <button type="button" onClick={handleCancelEditAppointment} className="px-3 py-1 bg-slate-200 text-slate-900 rounded text-xs font-bold">Cancelar</button>
+                                  </div>
+                                </form>
+                              </div>
                               ) : (
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <div className="font-semibold text-slate-800">{a.title}</div>
-                                  <div className="text-slate-600">{dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })} • {a.status}</div>
-                                  {pendingReminder && (
-                                    <div className="text-[11px] text-amber-700">Recordatorio programado: {formatDateTime(pendingReminder.dueAt)}</div>
-                                  )}
+                              <div className="px-3 py-3 flex flex-col md:flex-row justify-between items-start gap-2">
+                                <div className="flex items-start gap-3 w-full md:w-auto min-w-0">
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-lg text-indigo-700 dark:text-white font-bold text-center min-w-[64px] md:min-w-[84px] flex-shrink-0">
+                                    <div className="text-[10px] uppercase tracking-wider mb-0.5">Hora</div>
+                                    <div className="text-sm md:text-lg">{dt.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</div>
+                                  </div>
+                                  <div className="min-w-0 w-full">
+                                    <h4 className="font-bold text-slate-800 dark:text-white mb-1 break-words text-sm md:text-base">{a.title}</h4>
+                                    <div className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-1 text-[11px] max-w-full">
+                                      <span className={`px-2 py-0.5 rounded-full border text-xs ${a.status==='completed'?'bg-emerald-100 border-emerald-200 text-emerald-700':'bg-blue-100 border-blue-200 text-blue-700'} block md:inline`}>{a.status}</span>
+                                      {patient && <span className="text-slate-600 dark:text-slate-300 break-words block md:inline">Paciente: {patient.apellidos}, {patient.nombres}</span>}
+                                      {service && <span className="text-slate-600 dark:text-slate-300 break-words block md:inline">Servicio: {service.name}</span>}
+                                    </div>
+                                    {pendingReminder && (
+                                      <div className="hidden sm:block text-[11px] text-amber-700 mt-1">Recordatorio programado: {formatDateTime(pendingReminder.dueAt)}</div>
+                                    )}
+                                  </div>
                                 </div>
-                                <div className="flex gap-1">
-                                  {a.status !== 'completed' && <button disabled={completeBusyId===a.id} onClick={() => handleMarkAppointmentCompleted(a.id)} className="text-xs px-2 py-0.5 bg-teal-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">Atendida</button>}
-                                  {pendingReminder && pendingReminder.status === 'pending' && <button onClick={async () => { try { const updated = await sendReminderNow(token, pendingReminder.id); setReminders(prev => prev.map(x => x.id === pendingReminder.id ? updated : x)); } catch (e) { alert(e?.message || 'No se pudo enviar'); } }} className="text-xs px-2 py-0.5 bg-emerald-600 text-white rounded">Enviar ahora</button>}
-                                  <button onClick={() => handleStartEditAppointment(a)} className="text-xs px-2 py-0.5 bg-indigo-600 text-white rounded">Editar</button>
-                                  <button onClick={() => handleDeleteAppointment(a.id)} className="text-xs px-2 py-0.5 bg-red-600 text-white rounded">Eliminar</button>
+                                <div className="grid grid-cols-4 md:grid-cols-4 gap-1 w-full md:w-auto border-t md:border-t-0 border-slate-100 pt-3 md:pt-0 box-border min-w-0 max-w-full">
+                                  {a.status !== 'completed' && (
+                                    <button disabled={completeBusyId===a.id} onClick={() => handleMarkAppointmentCompleted(a.id)} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed w-full justify-center min-w-0 overflow-hidden">
+                                      <CheckCircle2 className="w-3 h-3" /> <span className="hidden md:inline">Atendida</span>
+                                    </button>
+                                  )}
+                                  {pendingReminder && pendingReminder.status === 'pending' && (
+                                    <button onClick={async () => { try { const updated = await sendReminderNow(token, pendingReminder.id); setReminders(prev => prev.map(x => x.id === pendingReminder.id ? updated : x)); } catch (e) { alert(e?.message || 'No se pudo enviar'); } }} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded w-full justify-center min-w-0 overflow-hidden">
+                                      <Send className="w-3 h-3" /> <span className="hidden md:inline">Enviar</span>
+                                    </button>
+                                  )}
+                                  <button onClick={() => handleStartEditAppointment(a)} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded w-full justify-center min-w-0 overflow-hidden">
+                                    <Pencil className="w-3 h-3" /> <span className="hidden md:inline">Editar</span>
+                                  </button>
+                                  <button onClick={() => handleDeleteAppointment(a.id)} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded w-full justify-center min-w-0 overflow-hidden">
+                                    <Trash2 className="w-3 h-3" /> <span className="hidden md:inline">Eliminar</span>
+                                  </button>
                                 </div>
                               </div>
                             )}

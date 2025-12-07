@@ -33,7 +33,7 @@ const Sidebar = ({ activeView, onViewChange, isOpen, setIsOpen, onLogout }) => {
 
       <aside 
         className={`
-          bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-screen fixed left-0 top-0 z-40
+          bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 h-screen md:h-screen h-[100dvh] fixed left-0 top-0 z-40
           transition-all duration-300 ease-in-out flex-col
           ${isOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0 md:w-20'}
           flex
